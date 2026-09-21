@@ -138,6 +138,19 @@ function AntiTamper:apply(ast, pipeline)
                 end
             end
 
+            -- Exploit Environment GC & Function Integrity Check (filtergc & getfunctionhash)
+            if type(filtergc) == "function" and type(getfunctionhash) == "function" then
+                local function _dummy_target() end
+                local _dummy_hash = getfunctionhash(_dummy_target)
+                local _res_func = filtergc('function', {
+                    IgnoreExecutor = false,
+                    Hash = _dummy_hash,
+                }, true)
+                if (typeof and typeof(_res_func) ~= 'function') or type(_res_func) ~= 'function' or getfunctionhash(_res_func) ~= _dummy_hash then
+                    valid = false;
+                end
+            end
+
             -- Anti Beautify
             local function getTraceback()
                 local str = (function(arg)
