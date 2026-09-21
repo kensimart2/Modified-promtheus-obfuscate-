@@ -54,6 +54,11 @@ return function(Compiler)
             return false;
         end
 
+        -- Cap merged assignments so expression list never exceeds parser recursion / register limits
+        if #a.lhs + #b.lhs > 16 then
+            return false;
+        end
+
         -- Avoid merging vararg/call assignments because they can affect multi-return behavior.
         local function hasUnsafeRhs(rhsList)
             for _, rhsExpr in ipairs(rhsList) do

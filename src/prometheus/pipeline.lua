@@ -49,12 +49,17 @@ function Pipeline:new(settings)
 	local prettyPrint = settings.PrettyPrint or Pipeline.DefaultSettings.PrettyPrint;
 	local prefix = settings.VarNamePrefix or Pipeline.DefaultSettings.VarNamePrefix;
 	local seed = settings.Seed or 0;
+	local watermark = settings.Watermark;
+	if watermark == nil then
+		watermark = "ARKA\nON\nTOP!";
+	end
 
 	local pipeline = {
 		LuaVersion = luaVersion;
 		PrettyPrint = prettyPrint;
 		VarNamePrefix = prefix;
 		Seed = seed;
+		Watermark = watermark;
 		parser = Parser:new({
 			LuaVersion = luaVersion;
 		});
@@ -62,6 +67,7 @@ function Pipeline:new(settings)
 			LuaVersion = luaVersion;
 			PrettyPrint = prettyPrint;
 			Highlight = settings.Highlight;
+			Watermark = watermark;
 		});
 		namegenerator = Pipeline.NameGenerators.MangledShuffled;
 		conventions = conventions;
@@ -81,6 +87,7 @@ function Pipeline:fromConfig(config)
 		PrettyPrint = config.PrettyPrint or false;
 		VarNamePrefix = config.VarNamePrefix or "";
 		Seed = config.Seed or 0;
+		Watermark = config.Watermark,
 	});
 
 	pipeline:setNameGenerator(config.NameGenerator or "MangledShuffled")
@@ -134,6 +141,8 @@ function Pipeline:setLuaVersion(luaVersion)
 	});
 	self.unparser = Unparser:new({
 		LuaVersion = luaVersion;
+		PrettyPrint = self.PrettyPrint;
+		Watermark = self.Watermark;
 	});
 	self.conventions = conventions;
 end

@@ -12,6 +12,7 @@ export interface PrometheusOptions {
   luaVersion: LuaVersion
   prettyPrint: boolean
   seed: number
+  watermark?: string
 }
 
 export interface PrometheusLog {

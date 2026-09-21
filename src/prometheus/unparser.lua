@@ -19,6 +19,7 @@ local logger = require("logger");
 local lookupify = util.lookupify;
 local LuaVersion = Enums.LuaVersion;
 local AstKind = Ast.AstKind;
+local WatermarkBanner = require("prometheus.watermark_banner");
 
 local Unparser = {}
 
@@ -33,6 +34,7 @@ end
 function Unparser:new(settings)
 	local luaVersion = settings.LuaVersion or LuaVersion.LuaU;
 	local conventions = Enums.Conventions[luaVersion];
+	local watermarkBanner = settings and settings.Watermark and WatermarkBanner.formatBanner(settings.Watermark) or nil;
 	local unparser = {
 		luaVersion = luaVersion;
 		conventions = conventions;
@@ -43,6 +45,8 @@ function Unparser:new(settings)
 		numberPattern = "^[" .. table.concat(conventions.NumberChars, "") .. "]";
 		highlight = settings and settings.Highlight or false;
 		keywordsLookup = lookupify(conventions.Keywords);
+		watermarkBanner = watermarkBanner;
+		watermarkRaw = settings and settings.Watermark;
 	}
 
 	setmetatable(unparser, self);
@@ -102,9 +106,42 @@ function Unparser:whitespace(ws)
 	return self.SPACE or ws;
 end
 
+local function getPrimaryBlock(ast)
+	local b = ast.body;
+	while b and b.statements and #b.statements == 1 do
+		local stmt = b.statements[1];
+		if stmt and stmt.kind == AstKind.ReturnStatement and stmt.args and #stmt.args == 1 then
+			local expr = stmt.args[1];
+			if expr and expr.kind == AstKind.FunctionCallExpression and expr.base and expr.base.kind == AstKind.FunctionLiteralExpression then
+				b = expr.base.body;
+			else
+				break;
+			end
+		else
+			break;
+		end
+	end
+	return b;
+end
+
 function Unparser:unparse(ast)
 	if(ast.kind ~= AstKind.TopNode) then
 		logger:error("Unparser:unparse expects a TopNode as first argument")
+	end
+
+	self.middleBlock = nil;
+	self.middleStatementIndex = -1;
+	self.middleWatermarkInserted = false;
+
+	if self.watermarkBanner then
+		local primaryBlock = getPrimaryBlock(ast);
+		if primaryBlock and primaryBlock.statements and #primaryBlock.statements >= 2 then
+			self.middleBlock = primaryBlock;
+			self.middleStatementIndex = math.max(1, math.floor(#primaryBlock.statements / 2));
+		elseif ast.body and ast.body.statements and #ast.body.statements >= 1 then
+			self.middleBlock = ast.body;
+			self.middleStatementIndex = math.max(1, math.floor(#ast.body.statements / 2));
+		end
 	end
 
 	return self:unparseBlock(ast.body);
@@ -122,8 +159,22 @@ function Unparser:unparseBlock(block, tabbing)
 
 	local parts = {}
 
+	local function getWatermarkCode()
+		if self.prettyPrint then
+			return "\nlocal _ = [==[\n" .. self.watermarkBanner .. "\n]==];\n";
+		else
+			return ";local _=[==[\n" .. self.watermarkBanner .. "\n]==];";
+		end
+	end
+
 	for i, statement in ipairs(block.statements) do
 		if(statement.kind ~= AstKind.NopStatement) then
+			-- If targeted statement is ReturnStatement, insert watermark BEFORE it so syntax remains valid
+			if self.watermarkBanner and not self.middleWatermarkInserted and block == self.middleBlock and i == self.middleStatementIndex and statement.kind == AstKind.ReturnStatement then
+				self.middleWatermarkInserted = true;
+				parts[#parts + 1] = getWatermarkCode();
+			end
+
 			local statementCode = self:unparseStatement(statement, tabbing);
 			if(not self.prettyPrint and #parts > 0 and string.sub(statementCode, 1, 1) == "(") then
 				-- This is so that the following works:
@@ -138,6 +189,12 @@ function Unparser:unparseBlock(block, tabbing)
 				statementCode = statementCode .. ";"
 			end
 			parts[#parts + 1] = statementCode;
+
+			-- Insert middle watermark statement after current statement
+			if self.watermarkBanner and not self.middleWatermarkInserted and block == self.middleBlock and i == self.middleStatementIndex then
+				self.middleWatermarkInserted = true;
+				parts[#parts + 1] = getWatermarkCode();
+			end
 		end
 	end
 

@@ -98,12 +98,13 @@ ConstantArray.SettingsDescriptor = {
 
 local prefix_0, prefix_1;
 local function initPrefixes()
-	local charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@£$%^&*()_+-=[]{}|:;<>,./?";
-	repeat
-		local a, b = math.random(1, #charset), math.random(1, #charset);
-		prefix_0 = charset:sub(a, a);
-		prefix_1 = charset:sub(b, b);
-	until prefix_0 ~= prefix_1
+	local b1 = math.random(128, 250);
+	local b2 = math.random(128, 250);
+	while b2 == b1 do
+		b2 = math.random(128, 250);
+	end
+	prefix_0 = string.char(b1);
+	prefix_1 = string.char(b2);
 end
 
 local function callNameGenerator(generatorFunction, ...)
@@ -117,26 +118,6 @@ function ConstantArray:init(_) end
 
 function ConstantArray:createArray()
 	local entries = {};
-	-- Inject honeypot / trap decoy items to confuse automated decompiler agents
-	-- Using random obscure byte sequences and mathematical identifiers (no AI-like text)
-	local decoys = {
-		string.format("_0x%x", math.random(0x100000, 0xffffff)),
-		string.format("v_%d_%d", math.random(10, 99), math.random(1000, 9999)),
-		string.format("%c%c%c_%x", math.random(65, 90), math.random(97, 122), math.random(65, 90), math.random(100, 999)),
-		string.format("idx_%x_st", math.random(0x1000, 0xffff)),
-		string.format("r_%d_k", math.random(100, 999)),
-	}
-	for i = 1, math.random(4, 10) do
-		local dummyVal = decoys[math.random(#decoys)] .. "_" .. string.format("%x", math.random(0x10, 0xff))
-		table.insert(self.constants, dummyVal)
-	end
-
-	-- Rebuild self.lookup offsets to match the new indexes perfectly
-	self.lookup = {}
-	for i, v in ipairs(self.constants) do
-		self.lookup[v] = i
-	end
-
 	for i, v in ipairs(self.constants) do
 		if type(v) == "string" then
 			v = self:encode(v);
@@ -209,9 +190,20 @@ local function rotate(t, d, n)
 end
 
 local rotateCode = [=[
-	for i, v in ipairs({{1, LEN}, {1, SHIFT}, {SHIFT + 1, LEN}}) do
-		while v[1] < v[2] do
-			ARR[v[1]], ARR[v[2]], v[1], v[2] = ARR[v[2]], ARR[v[1]], v[1] + 1, v[2] - 1
+	do
+		local _arr = ARR;
+		local _len = #_arr;
+		local _k = MASK;
+		local _shift = SHIFT_EXPR;
+		local _p = {{1, _len}, {1, _shift}, {_shift + 1, _len}};
+		for _i = 1, 3 do
+			local _r = _p[_i];
+			local _l, _u = _r[1], _r[2];
+			while _l < _u do
+				_arr[_l], _arr[_u] = _arr[_u], _arr[_l];
+				_l = _l + 1;
+				_u = _u - 1;
+			end
 		end
 	end
 ]=];
@@ -221,7 +213,10 @@ function ConstantArray:addRotateCode(ast, shift)
 		LuaVersion = LuaVersion.Lua51;
 	});
 
-	local newAst = parser:parse(string.gsub(string.gsub(rotateCode, "SHIFT", tostring(shift)), "LEN", tostring(#self.constants)));
+	local mask = math.random(1000, 9999);
+	local shiftExpr = string.format("(%d - %d)", shift + mask, mask);
+	local code = string.gsub(string.gsub(rotateCode, "SHIFT_EXPR", shiftExpr), "MASK", tostring(mask));
+	local newAst = parser:parse(code);
 	local forStat = newAst.body.statements[1];
 	forStat.body.scope:setParent(ast.body.scope);
 	visitast(newAst, nil, function(node, data)
@@ -257,6 +252,7 @@ function ConstantArray:addDecodeCode(ast)
 		charTableDef,
 		"local concat = function(t) local s = '' for k = 1, #t do s = s .. t[k] end return s end;",
 		"local type = type;",
+		"local sbyte = string.byte;",
 		"local arr = ARR;",
 	}) .. [[
 		for i = 1, #arr do
@@ -290,8 +286,29 @@ function ConstantArray:addDecodeCode(ast)
 					end
 					index = index + 1
 				end
-				arr[i] = concat(parts)
+				local raw = concat(parts);
+				local rlen = len(raw);
+				local dec = {};
+				for j = 1, rlen do
+					local b = sbyte(raw, j);
+					local k = (CIPHER_SEED + j * CIPHER_STEP + j * (j + 1) * CIPHER_QUAD) % 256;
+					dec[j] = cm[((b - k) % 256) + 1];
+				end
+				arr[i] = concat(dec);
 			end
+		end
+		local _s_mt = setmetatable;
+		local _trap = function() (error or print)(string.char(84, 97, 109, 112, 101, 114, 32, 68, 101, 116, 101, 99, 116, 33), 0) end;
+		local _arr_mt = {
+			__metatable = "The table is locked.",
+			__newindex = _trap,
+			__pairs = _trap,
+			__ipairs = _trap,
+		};
+		_s_mt(arr, _arr_mt);
+		if table and table.freeze then
+			pcall(table.freeze, arr);
+			pcall(table.freeze, _arr_mt);
 		end
 	end
 ]];
@@ -300,7 +317,8 @@ function ConstantArray:addDecodeCode(ast)
 			LuaVersion = LuaVersion.Lua51;
 		});
 
-		local newAst = parser:parse(base64DecodeCode);
+		local code = string.gsub(string.gsub(string.gsub(base64DecodeCode, "CIPHER_SEED", tostring(self.cipherSeed)), "CIPHER_STEP", tostring(self.cipherStep)), "CIPHER_QUAD", tostring(self.cipherQuad));
+		local newAst = parser:parse(code);
 		local forStat = newAst.body.statements[1];
 		forStat.body.scope:setParent(ast.body.scope);
 
@@ -339,6 +357,7 @@ function ConstantArray:addDecodeCode(ast)
 		charTableDef,
 		"local concat = function(t) local s = '' for k = 1, #t do s = s .. t[k] end return s end;",
 		"local type = type;",
+		"local sbyte = string.byte;",
 		"local arr = ARR;",
 	}) .. [[
 		for i = 1, #arr do
@@ -386,8 +405,29 @@ function ConstantArray:addDecodeCode(ast)
 
 					index = index + count
 				end
-				arr[i] = concat(parts)
+				local raw = concat(parts);
+				local rlen = len(raw);
+				local dec = {};
+				for j = 1, rlen do
+					local b = sbyte(raw, j);
+					local k = (CIPHER_SEED + j * CIPHER_STEP + j * (j + 1) * CIPHER_QUAD) % 256;
+					dec[j] = cm[((b - k) % 256) + 1];
+				end
+				arr[i] = concat(dec);
 			end
+		end
+		local _s_mt = setmetatable;
+		local _trap = function() (error or print)(string.char(84, 97, 109, 112, 101, 114, 32, 68, 101, 116, 101, 99, 116, 33), 0) end;
+		local _arr_mt = {
+			__metatable = "The table is locked.",
+			__newindex = _trap,
+			__pairs = _trap,
+			__ipairs = _trap,
+		};
+		_s_mt(arr, _arr_mt);
+		if table and table.freeze then
+			pcall(table.freeze, arr);
+			pcall(table.freeze, _arr_mt);
 		end
 	end
 ]];
@@ -396,7 +436,8 @@ function ConstantArray:addDecodeCode(ast)
 			LuaVersion = LuaVersion.Lua51;
 		});
 
-		local newAst = parser:parse(base85DecodeCode);
+		local code = string.gsub(string.gsub(string.gsub(base85DecodeCode, "CIPHER_SEED", tostring(self.cipherSeed)), "CIPHER_STEP", tostring(self.cipherStep)), "CIPHER_QUAD", tostring(self.cipherQuad));
+		local newAst = parser:parse(code);
 		local forStat = newAst.body.statements[1];
 		forStat.body.scope:setParent(ast.body.scope);
 
@@ -426,6 +467,9 @@ function ConstantArray:addDecodeCode(ast)
 			return t
 		end)(), '","') .. '"};'
 
+		local p0_esc = string.format("\\%03d", string.byte(prefix_0));
+		local p1_esc = string.format("\\%03d", string.byte(prefix_1));
+
 		local mixedDecodeCode = [[
 	do ]] .. table.concat(util.shuffle{
 		"local lookup64 = LOOKUP_TABLE_64;",
@@ -436,13 +480,14 @@ function ConstantArray:addDecodeCode(ast)
 		charTableDef,
 		"local concat = function(t) local s = '' for k = 1, #t do s = s .. t[k] end return s end;",
 		"local type = type;",
+		"local sbyte = string.byte;",
 		"local arr = ARR;",
 	}) .. [[
 		for i = 1, #arr do
 			local data = arr[i];
 			if type(data) == "string" then
 				local first = sub(data, 1, 1)
-				if first == "]]..prefix_0..[[" then
+				if first == "]]..p0_esc..[[" then
 					data = sub(data, 2)
 					local length = len(data)
 					local parts = {}
@@ -472,8 +517,16 @@ function ConstantArray:addDecodeCode(ast)
 						end
 						index = index + 1
 					end
-					arr[i] = concat(parts)
-				elseif first == "]]..prefix_1..[[" then
+					local raw = concat(parts);
+					local rlen = len(raw);
+					local dec = {};
+					for j = 1, rlen do
+						local b = sbyte(raw, j);
+						local k = (CIPHER_SEED + j * CIPHER_STEP + j * (j + 1) * CIPHER_QUAD) % 256;
+						dec[j] = cm[((b - k) % 256) + 1];
+					end
+					arr[i] = concat(dec);
+				elseif first == "]]..p1_esc..[[" then
 					data = sub(data, 2)
 					local length = len(data)
 					local parts = {}
@@ -517,9 +570,30 @@ function ConstantArray:addDecodeCode(ast)
 
 						idx = idx + count
 					end
-					arr[i] = concat(parts)
+					local raw = concat(parts);
+					local rlen = len(raw);
+					local dec = {};
+					for j = 1, rlen do
+						local b = sbyte(raw, j);
+						local k = (CIPHER_SEED + j * CIPHER_STEP + j * (j + 1) * CIPHER_QUAD) % 256;
+						dec[j] = cm[((b - k) % 256) + 1];
+					end
+					arr[i] = concat(dec);
 				end
 			end
+		end
+		local _s_mt = setmetatable;
+		local _trap = function() (error or print)(string.char(84, 97, 109, 112, 101, 114, 32, 68, 101, 116, 101, 99, 116, 33), 0) end;
+		local _arr_mt = {
+			__metatable = "The table is locked.",
+			__newindex = _trap,
+			__pairs = _trap,
+			__ipairs = _trap,
+		};
+		_s_mt(arr, _arr_mt);
+		if table and table.freeze then
+			pcall(table.freeze, arr);
+			pcall(table.freeze, _arr_mt);
 		end
 	end
 ]];
@@ -528,7 +602,8 @@ function ConstantArray:addDecodeCode(ast)
 			LuaVersion = LuaVersion.Lua51;
 		});
 
-		local newAst = parser:parse(mixedDecodeCode);
+		local code = string.gsub(string.gsub(string.gsub(mixedDecodeCode, "CIPHER_SEED", tostring(self.cipherSeed)), "CIPHER_STEP", tostring(self.cipherStep)), "CIPHER_QUAD", tostring(self.cipherQuad));
+		local newAst = parser:parse(code);
 		local forStat = newAst.body.statements[1];
 		forStat.body.scope:setParent(ast.body.scope);
 
@@ -579,7 +654,22 @@ function ConstantArray:createBase85Lookup()
 	return Ast.TableConstructorExpression(entries);
 end
 
+function ConstantArray:cipherEncrypt(str)
+	local res = {};
+	local slen = #str;
+	for j = 1, slen do
+		local b = string.byte(str, j);
+		local k = (self.cipherSeed + j * self.cipherStep + j * (j + 1) * self.cipherQuad) % 256;
+		res[j] = string.char((b + k) % 256);
+	end
+	return table.concat(res);
+end
+
 function ConstantArray:encode(str)
+	if self.Encoding == "none" then
+		return str;
+	end
+	str = self:cipherEncrypt(str);
 	if self.Encoding == "base64" then
 		return ((str:gsub('.', function(x)
 			local r,b='',x:byte()
@@ -656,11 +746,16 @@ function ConstantArray:encode(str)
 
 			return prefix_1 .. table.concat(result);
 		end
+	else
+		return str;
 	end
 end
 
 function ConstantArray:apply(ast, pipeline)
 	initPrefixes();
+	self.cipherSeed = math.random(13, 241);
+	self.cipherStep = math.random(5, 27) * 2 + 1;
+	self.cipherQuad = math.random(1, 15) * 2 + 1;
 	self.rootScope = ast.body.scope;
 	self.arrId = self.rootScope:addVariable();
 
@@ -701,6 +796,48 @@ function ConstantArray:apply(ast, pipeline)
 			end
 		end
 	end);
+
+	-- Inject honeypot / decoy constants before shuffling and indexing
+	local decoys = {
+		"ReplicatedStorage",
+		"Players",
+		"LocalPlayer",
+		"Character",
+		"Humanoid",
+		"HumanoidRootPart",
+		"FindFirstChild",
+		"WaitForChild",
+		"GetChildren",
+		"GetDescendants",
+		"FireServer",
+		"InvokeServer",
+		"OnClientEvent",
+		"TweenService",
+		"UserInputService",
+		"ContextActionService",
+		"HttpService",
+		"Heartbeat",
+		"RenderStepped",
+		"Stepped",
+		"TeleportService",
+		"CFrame",
+		"Vector3",
+		"Color3",
+		"Instance",
+		"Destroy",
+		"Clone",
+		"Parent",
+		"Name",
+		string.format("_0x%x", math.random(0x100000, 0xffffff)),
+		string.format("v_%d_%d", math.random(10, 99), math.random(1000, 9999)),
+		string.format("%c%c%c_%x", math.random(65, 90), math.random(97, 122), math.random(65, 90), math.random(100, 999)),
+		string.format("idx_%x_st", math.random(0x1000, 0xffff)),
+		string.format("r_%d_k", math.random(100, 999)),
+	}
+	for i = 1, math.random(14, 22) do
+		local dummyVal = decoys[math.random(#decoys)] .. (math.random() > 0.5 and ("_" .. string.format("%x", math.random(0x10, 0xff))) or "")
+		self:addConstant(dummyVal);
+	end
 
 	-- Shuffle Array
 	if self.Shuffle then
@@ -836,10 +973,52 @@ function ConstantArray:apply(ast, pipeline)
 				addSubArg = Ast.AddExpression(Ast.VariableExpression(funcScope, arg), Ast.NumberExpression(self.wrapperOffset));
 			end
 
+			local dummyArg = funcScope:addVariable();
+			local canaryStat = Ast.IfStatement(
+				Ast.AndExpression(
+					Ast.VariableExpression(funcScope, dummyArg),
+					Ast.EqualsExpression(Ast.VariableExpression(funcScope, dummyArg), Ast.NumberExpression(0))
+				),
+				Ast.Block({
+					Ast.FunctionCallStatement(
+						Ast.VariableExpression(funcScope:resolveGlobal("error")),
+						{
+							Ast.FunctionCallExpression(
+								Ast.IndexExpression(
+									Ast.VariableExpression(funcScope:resolveGlobal("string")),
+									Ast.StringExpression("char")
+								),
+								{
+									Ast.NumberExpression(84),
+									Ast.NumberExpression(97),
+									Ast.NumberExpression(109),
+									Ast.NumberExpression(112),
+									Ast.NumberExpression(101),
+									Ast.NumberExpression(114),
+									Ast.NumberExpression(32),
+									Ast.NumberExpression(68),
+									Ast.NumberExpression(101),
+									Ast.NumberExpression(116),
+									Ast.NumberExpression(101),
+									Ast.NumberExpression(99),
+									Ast.NumberExpression(116),
+									Ast.NumberExpression(33),
+								}
+							),
+							Ast.NumberExpression(0),
+						}
+					)
+				}, funcScope),
+				{},
+				nil
+			);
+
 			-- Create and Add the Function Declaration
 			table.insert(ast.body.statements, 1, Ast.LocalFunctionDeclaration(self.rootScope, self.wrapperId, {
-				Ast.VariableExpression(funcScope, arg)
+				Ast.VariableExpression(funcScope, arg),
+				Ast.VariableExpression(funcScope, dummyArg),
 			}, Ast.Block({
+				canaryStat,
 				Ast.ReturnStatement({
 					Ast.IndexExpression(
 						Ast.VariableExpression(self.rootScope, self.arrId),

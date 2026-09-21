@@ -128,6 +128,7 @@ local ok, outputOrError = xpcall(function()
   config.LuaVersion = ${toLuaLongString(options.luaVersion)}
   config.PrettyPrint = ${options.prettyPrint ? "true" : "false"}
   config.Seed = ${Math.max(1, Math.floor(options.seed))}
+  ${options.watermark !== undefined ? `config.Watermark = ${toLuaLongString(options.watermark)}` : `config.Watermark = "ARKA\\nON\\nTOP!"`}
 
   return Prometheus.Pipeline:fromConfig(config):apply(source, filename)
 end, debug.traceback)

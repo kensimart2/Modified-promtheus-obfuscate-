@@ -124,6 +124,8 @@ export default function App() {
   const [luaVersion, setLuaVersion] = useState<LuaVersion>("LuaU")
   const [prettyPrint, setPrettyPrint] = useState(false)
   const [seed, setSeed] = useState(createSeed)
+  const [watermark, setWatermark] = useState("ARKA\nON\nTOP!")
+  const [watermarkEnabled, setWatermarkEnabled] = useState(true)
   const [logs, setLogs] = useState<PrometheusLog[]>([])
   const [activeJob, setActiveJob] = useState<ActiveJob>("idle")
   const [copied, setCopied] = useState(false)
@@ -281,6 +283,7 @@ export default function App() {
       luaVersion: LuaVersion
       prettyPrint: boolean
       seed: number
+      watermark?: string
     }
   }) {
     if (isBusy && !override) {
@@ -291,7 +294,14 @@ export default function App() {
     try {
       setLogs([])
       const id = ++requestIdRef.current
-      const options = override?.options ?? { source, preset, luaVersion, prettyPrint, seed }
+      const options = override?.options ?? {
+        source,
+        preset,
+        luaVersion,
+        prettyPrint,
+        seed,
+        watermark: watermarkEnabled ? watermark : "",
+      }
       const request: WorkerRequest = {
         id,
         action: "obfuscate",
@@ -302,6 +312,7 @@ export default function App() {
           luaVersion: options.luaVersion,
           prettyPrint: options.prettyPrint,
           seed: options.seed,
+          watermark: options.watermark,
         },
       }
 
@@ -533,7 +544,7 @@ export default function App() {
         </header>
 
         <section className="border-b bg-background">
-          <div className="mx-auto grid w-full max-w-[1600px] gap-3 px-4 py-3 md:grid-cols-2 xl:grid-cols-[180px_160px_150px_210px_auto] xl:items-end">
+          <div className="mx-auto grid w-full max-w-[1600px] gap-3 px-4 py-3 md:grid-cols-2 xl:grid-cols-[160px_140px_130px_150px_200px_auto] xl:items-end">
             <div className="space-y-1.5">
               <Label>Preset</Label>
               <Select value={preset} onValueChange={(value) => setPreset(value as PresetName)}>
@@ -590,6 +601,30 @@ export default function App() {
                   <TooltipContent>Generate seed</TooltipContent>
                 </Tooltip>
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="watermark-input" className="text-xs font-medium">
+                  Watermark
+                </Label>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted-foreground">{watermarkEnabled ? "Active" : "Off"}</span>
+                  <Switch
+                    id="watermark-toggle"
+                    checked={watermarkEnabled}
+                    onCheckedChange={setWatermarkEnabled}
+                    disabled={isBusy}
+                  />
+                </div>
+              </div>
+              <Input
+                id="watermark-input"
+                type="text"
+                placeholder="ARKA ON TOP!"
+                value={watermark}
+                disabled={isBusy || !watermarkEnabled}
+                onChange={(event) => setWatermark(event.target.value)}
+              />
             </div>
             <div className="flex gap-2 self-end">
               <Tooltip>

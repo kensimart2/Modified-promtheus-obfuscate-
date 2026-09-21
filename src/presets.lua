@@ -50,7 +50,7 @@ return {
 		},
 	},
 
-	-- Medium obfuscation. Moderate obfuscation, moderate performance loss.
+	-- Medium obfuscation. Moderate obfuscation, compact size, high security.
 	["Medium"] = {
 		LuaVersion = "LuaU",
 		VarNamePrefix = "",
@@ -58,6 +58,13 @@ return {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
+			{
+				Name = "NumbersToExpressions",
+				Settings = {
+					Threshold = 1,
+					NumberRepresentationMutation = true,
+				},
+			},
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "AntiTamper",
@@ -73,15 +80,18 @@ return {
 					StringsOnly = true,
 					Shuffle = true,
 					Rotate = true,
-					LocalWrapperThreshold = 0,
+					Encoding = "mixed",
+					LocalWrapperThreshold = 0.8,
+					LocalWrapperCount = 3,
+					LocalWrapperArgCount = 6,
+					MaxWrapperOffset = 256,
 				},
 			},
-			{ Name = "NumbersToExpressions", Settings = {} },
 			{ Name = "WrapInFunction", Settings = {} },
 		},
 	},
 
-	-- Strong obfuscation, high performance loss.
+	-- Strong obfuscation. Maximum security, hardened against deobfuscation, under 100kb.
 	["Strong"] = {
 		LuaVersion = "LuaU",
 		VarNamePrefix = "",
@@ -89,7 +99,13 @@ return {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
-			{ Name = "Vmify", Settings = {} },
+			{
+				Name = "NumbersToExpressions",
+				Settings = {
+					Threshold = 1,
+					NumberRepresentationMutation = true,
+				},
+			},
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "AntiTamper",
@@ -103,19 +119,14 @@ return {
 				Name = "ConstantArray",
 				Settings = {
 					Threshold = 1,
-					StringsOnly = false,
+					StringsOnly = true,
 					Shuffle = true,
 					Rotate = true,
+					Encoding = "mixed",
 					LocalWrapperThreshold = 0.8,
-					LocalWrapperCount = 4,
-					LocalWrapperArgCount = 12,
+					LocalWrapperCount = 3,
+					LocalWrapperArgCount = 5,
 					MaxWrapperOffset = 256,
-				},
-			},
-			{
-				Name = "NumbersToExpressions",
-				Settings = {
-					NumberRepresentationMutation = true
 				},
 			},
 			{ Name = "WrapInFunction", Settings = {} },

@@ -91,10 +91,16 @@ function EncryptStrings:CreateEncryptionService()
 		local seed = gen_seed();
 		set_seed(seed)
 		local len = string.len(str)
+		local chk = 137;
+		for i = 1, len do
+			chk = (chk * 33 + string.byte(str, i)) % 256;
+		end
+		local payload = str .. string.char(chk);
+		local payloadLen = len + 1;
 		local out = {}
 		local prevVal = secret_key_8;
-		for i = 1, len do
-			local byte = string.byte(str, i);
+		for i = 1, payloadLen do
+			local byte = string.byte(payload, i);
 			out[i] = string.char((byte - (get_next_pseudo_random_byte() + prevVal)) % 256);
 			prevVal = byte;
 		end
@@ -116,6 +122,7 @@ do
 		"local floor = math.floor",
 		"local state_45 = 0",
 		"local state_8 = 2",
+		"local concat = table.concat or function(t) local s = '' for k = 1, #t do s = s .. t[k] end return s end",
 		charTableDef,
 	}, "\n") .. [[
 
@@ -143,25 +150,48 @@ do
 	end
 
 	local realStrings = {};
-	STRINGS = setmetatable({}, {
-		__index = realStrings;
-		__metatable = nil;
-	});
+	local _s_trap = function() (error or print)(string.char(84, 97, 109, 112, 101, 114, 32, 68, 101, 116, 101, 99, 116, 33), 0) end;
+	local _strings_mt = {
+		__index = realStrings,
+		__newindex = _s_trap,
+		__pairs = _s_trap,
+		__ipairs = _s_trap,
+		__metatable = "The table is locked.",
+	};
+	STRINGS = setmetatable({}, _strings_mt);
+	if table and table.freeze then
+		pcall(table.freeze, _strings_mt);
+		pcall(table.freeze, charmap);
+	end
+	local strbyte = string.byte;
   	function DECRYPT(str, seed)
 		local realStringsLocal = realStrings;
 		if(realStringsLocal[seed]) then return seed; else
+			if getmetatable(STRINGS) ~= "The table is locked." then
+				_s_trap();
+			end
 			prev_values = {};
 			local chars = charmap;
 			state_45 = seed % 35184372088832
 			state_8 = seed % 255 + 2
-			local len = #str;
+			local payloadLen = #str;
+			if payloadLen < 1 then
+				_s_trap();
+			end
 			realStringsLocal[seed] = "";
 			local prevVal = ]] .. tostring(secret_key_8) .. [[;
-			local s = "";
-			for i=1, len, 1 do
-				prevVal = (string.byte(str, i) + get_next_pseudo_random_byte() + prevVal) % 256
-				s = s .. chars[prevVal + 1];
+			local t = {};
+			local chk = 137;
+			for i = 1, payloadLen - 1 do
+				prevVal = (strbyte(str, i) + get_next_pseudo_random_byte() + prevVal) % 256;
+				chk = (chk * 33 + prevVal) % 256;
+				t[i] = chars[prevVal + 1];
 			end
+			prevVal = (strbyte(str, payloadLen) + get_next_pseudo_random_byte() + prevVal) % 256;
+			if prevVal ~= chk then
+				_s_trap();
+			end
+			local s = concat(t);
 			realStringsLocal[seed] = s;
 		end
 		return seed;
