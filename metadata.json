@@ -1,0 +1,8 @@
+{
+  "name": "Prometheus",
+  "description": "A highly configurable, multi-step Lua obfuscator with an interactive playground interface.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

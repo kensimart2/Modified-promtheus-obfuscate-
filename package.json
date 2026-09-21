@@ -1,0 +1,1 @@
+{"name":"prometheus-workspace","private":true,"workspaces":["web"],"scripts":{"docs:build":"node ./scripts/build-docs.mjs","dev":"npm run docs:build && npm run dev --workspace=web","build":"npm run docs:build && npm run build --workspace=web","start":"npm run preview --workspace=web"},"dependencies":{"honkit":"^6.2.2"}}
