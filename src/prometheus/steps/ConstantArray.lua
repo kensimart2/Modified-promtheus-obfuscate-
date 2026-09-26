@@ -114,17 +114,178 @@ local function callNameGenerator(generatorFunction, ...)
 	return generatorFunction(...);
 end
 
+local function createObfuscatedNumberNode(val)
+	local variant = math.random(1, 4);
+	if variant == 1 then
+		local mul = math.random(2, 6);
+		local k = math.random(11, 79) * mul;
+		return Ast.DivExpression(
+			Ast.SubExpression(
+				Ast.AddExpression(
+					Ast.MulExpression(Ast.NumberExpression(val), Ast.NumberExpression(mul)),
+					Ast.NumberExpression(k)
+				),
+				Ast.NumberExpression(k)
+			),
+			Ast.NumberExpression(mul)
+		);
+	elseif variant == 2 then
+		local d1 = math.random(13, 89);
+		local d2 = math.random(11, 73);
+		return Ast.SubExpression(
+			Ast.SubExpression(
+				Ast.AddExpression(
+					Ast.AddExpression(Ast.NumberExpression(val), Ast.NumberExpression(d1)),
+					Ast.NumberExpression(d2)
+				),
+				Ast.NumberExpression(d1)
+			),
+			Ast.NumberExpression(d2)
+		);
+	elseif variant == 3 then
+		local mul = math.random(2, 5);
+		local d = math.random(7, 31);
+		return Ast.DivExpression(
+			Ast.SubExpression(
+				Ast.MulExpression(
+					Ast.AddExpression(Ast.NumberExpression(val), Ast.NumberExpression(d)),
+					Ast.NumberExpression(mul)
+				),
+				Ast.NumberExpression(d * mul)
+			),
+			Ast.NumberExpression(mul)
+		);
+	else
+		local d1 = math.random(15, 67);
+		local d2 = math.random(12, 58);
+		return Ast.SubExpression(
+			Ast.AddExpression(
+				Ast.SubExpression(Ast.NumberExpression(val), Ast.NumberExpression(d1)),
+				Ast.NumberExpression(d1 + d2)
+			),
+			Ast.NumberExpression(d2)
+		);
+	end
+end
+
+local function obscureNumStr(num)
+	local mul = math.random(3, 7);
+	local offset = math.random(11, 47);
+	local base = num + offset;
+	return string.format("((%d * %d - %d) / %d)", base, mul, offset * mul, mul);
+end
+
 function ConstantArray:init(_) end
 
-function ConstantArray:createArray()
-	local entries = {};
-	for i, v in ipairs(self.constants) do
+function ConstantArray:createPackedStream()
+	local parts = {};
+	for _, v in ipairs(self.constants) do
 		if type(v) == "string" then
 			v = self:encode(v);
+			local len = #v;
+			local b1 = math.floor(len / 256);
+			local b2 = len % 256;
+			parts[#parts + 1] = string.char(1, b1, b2) .. v;
+		elseif type(v) == "number" then
+			local str = tostring(v);
+			parts[#parts + 1] = string.char(2, #str) .. str;
+		elseif v == true then
+			parts[#parts + 1] = string.char(3);
+		elseif v == false then
+			parts[#parts + 1] = string.char(4);
 		end
-		entries[i] = Ast.TableEntry(Ast.ConstantNode(v));
 	end
-	return Ast.TableConstructorExpression(entries);
+	local raw = table.concat(parts);
+	local rlen = #raw;
+
+	local seed = math.random(17, 239);
+	local step = math.random(3, 23) * 2 + 1;
+	local quad = math.random(1, 11) * 2 + 1;
+
+	local enc = {};
+	for p = 1, rlen do
+		local b = string.byte(raw, p);
+		local k = (b + seed + p * step + p * (p + 1) * quad) % 256;
+		enc[p] = string.char(k);
+	end
+	return table.concat(enc), seed, step, quad;
+end
+
+local unpackCode = [=[
+local ARR = (function(_raw, _seed, _step, _quad)
+	local _t, _len = {}, #_raw;
+	local _sb, _sc = string.byte, string.char;
+	local _tc = table.concat or function(p) local r = "" for i = 1, #p do r = r .. p[i] end return r end;
+	local _p, _idx = 1, 1;
+	while _p <= _len do
+		local _tag = (_sb(_raw, _p) - _seed - _p * _step - _p * (_p + 1) * _quad) % 256;
+		_p = _p + 1;
+		if _tag == 1 then
+			local _b1 = (_sb(_raw, _p) - _seed - _p * _step - _p * (_p + 1) * _quad) % 256;
+			_p = _p + 1;
+			local _b2 = (_sb(_raw, _p) - _seed - _p * _step - _p * (_p + 1) * _quad) % 256;
+			_p = _p + 1;
+			local _elen = _b1 * 256 + _b2;
+			local _chars = {};
+			for _j = 1, _elen do
+				_chars[_j] = _sc((_sb(_raw, _p) - _seed - _p * _step - _p * (_p + 1) * _quad) % 256);
+				_p = _p + 1;
+			end
+			_t[_idx] = _tc(_chars);
+			_idx = _idx + 1;
+		elseif _tag == 2 then
+			local _nlen = (_sb(_raw, _p) - _seed - _p * _step - _p * (_p + 1) * _quad) % 256;
+			_p = _p + 1;
+			local _nchars = {};
+			for _j = 1, _nlen do
+				_nchars[_j] = _sc((_sb(_raw, _p) - _seed - _p * _step - _p * (_p + 1) * _quad) % 256);
+				_p = _p + 1;
+			end
+			_t[_idx] = tonumber(_tc(_nchars));
+			_idx = _idx + 1;
+		elseif _tag == 3 then
+			_t[_idx] = true;
+			_idx = _idx + 1;
+		elseif _tag == 4 then
+			_t[_idx] = false;
+			_idx = _idx + 1;
+		end
+	end
+	return _t;
+end)(RAW_EXPR, SEED_EXPR, STEP_EXPR, QUAD_EXPR);
+]=];
+
+function ConstantArray:addArrayDeclaration(ast)
+	local encBlob, seed, step, quad = self:createPackedStream();
+	local parser = Parser:new({
+		LuaVersion = LuaVersion.Lua51;
+	});
+
+	local rawEscaped = "\"" .. util.escape(encBlob) .. "\"";
+	local seedExpr = obscureNumStr(seed);
+	local stepExpr = obscureNumStr(step);
+	local quadExpr = obscureNumStr(quad);
+
+	local code = string.gsub(string.gsub(string.gsub(string.gsub(unpackCode, "RAW_EXPR", function() return rawEscaped end), "SEED_EXPR", seedExpr), "STEP_EXPR", stepExpr), "QUAD_EXPR", quadExpr);
+	local newAst = parser:parse(code);
+	newAst.body.scope:setParent(self.rootScope);
+	local stat = newAst.body.statements[1];
+	stat.scope = self.rootScope;
+	stat.ids = { self.arrId };
+	if stat.expressions and stat.expressions[1] and stat.expressions[1].base and stat.expressions[1].base.scope then
+		stat.expressions[1].base.scope:setParent(self.rootScope);
+	end
+
+	visitast(newAst, nil, function(node, data)
+		if node.kind == AstKind.VariableExpression and node.scope:getVariableName(node.id) == "ARR" then
+			data.scope:removeReferenceToHigherScope(node.scope, node.id);
+			data.scope:addReferenceToHigherScope(self.rootScope, self.arrId);
+			node.scope = self.rootScope;
+			node.id = self.arrId;
+		end
+	end);
+
+	table.insert(ast.body.statements, 1, stat);
 end
 
 function ConstantArray:indexing(index, data)
@@ -136,9 +297,12 @@ function ConstantArray:indexing(index, data)
 		local ofs = index - self.wrapperOffset - wrapper.offset;
 		for i = 1, self.LocalWrapperArgCount, 1 do
 			if i == wrapper.arg then
-				args[i] = Ast.NumberExpression(ofs);
+				args[i] = createObfuscatedNumberNode(ofs);
+			elseif i == wrapper.canaryArg then
+				args[i] = createObfuscatedNumberNode(self.canaryToken);
 			else
-				args[i] = Ast.NumberExpression(math.random(ofs - 1024, ofs + 1024));
+				local dummy = math.random(ofs - 1024, ofs + 1024);
+				args[i] = createObfuscatedNumberNode(dummy);
 			end
 		end
 
@@ -148,9 +312,13 @@ function ConstantArray:indexing(index, data)
 			Ast.StringExpression(wrapper.index)
 		), args);
 	else
+		local targetVal = index - self.wrapperOffset;
+		local expr = createObfuscatedNumberNode(targetVal);
+		local canaryExpr = createObfuscatedNumberNode(self.canaryToken);
 		data.scope:addReferenceToHigherScope(self.rootScope, self.wrapperId);
 		return Ast.FunctionCallExpression(Ast.VariableExpression(self.rootScope, self.wrapperId), {
-			Ast.NumberExpression(index - self.wrapperOffset);
+			expr,
+			canaryExpr,
 		});
 	end
 end
@@ -234,93 +402,117 @@ function ConstantArray:addRotateCode(ast, shift)
 end
 
 function ConstantArray:addDecodeCode(ast)
-	if self.Encoding == "base64" then
-		local charTableDef = 'local cm = {"' .. table.concat((function()
-			local t = {}
-			for i = 0, 255 do
-				t[#t + 1] = string.format("\\%03d", i)
-			end
-			return t
-		end)(), '","') .. '"};'
-
-		local base64DecodeCode = [[
-	do ]] .. table.concat(util.shuffle{
-		"local lookup = LOOKUP_TABLE;",
-		"local len = string.len;",
-		"local sub = string.sub;",
-		"local floor = math.floor;",
-		charTableDef,
-		"local concat = function(t) local s = '' for k = 1, #t do s = s .. t[k] end return s end;",
-		"local type = type;",
-		"local sbyte = string.byte;",
-		"local arr = ARR;",
-	}) .. [[
-		for i = 1, #arr do
-			local data = arr[i];
-			if type(data) == "string" then
-				local length = len(data)
-				local parts = {}
-				local index = 1
-				local value = 0
-				local count = 0
-				while index <= length do
-					local char = sub(data, index, index)
-					local code = lookup[char]
-					if code then
-						value = value + code * (64 ^ (3 - count))
-						count = count + 1
-						if count == 4 then
-							count = 0
-							local c1 = floor(value / 65536)
-							local c2 = floor(value % 65536 / 256)
-							local c3 = value % 256
-							parts[#parts + 1] = cm[c1 + 1] .. cm[c2 + 1] .. cm[c3 + 1]
-							value = 0
-						end
-					elseif char == "=" then
-						parts[#parts + 1] = cm[floor(value / 65536) + 1];
-						if index >= length or sub(data, index + 1, index + 1) ~= "=" then
-							parts[#parts + 1] = cm[floor(value % 65536 / 256) + 1];
-						end
-						break
-					end
-					index = index + 1
-				end
-				local raw = concat(parts);
-				local rlen = len(raw);
-				local dec = {};
-				for j = 1, rlen do
-					local b = sbyte(raw, j);
-					local k = (CIPHER_SEED + j * CIPHER_STEP + j * (j + 1) * CIPHER_QUAD) % 256;
-					dec[j] = cm[((b - k) % 256) + 1];
-				end
-				arr[i] = concat(dec);
-			end
+	local charTableDef = 'local cm = {"' .. table.concat((function()
+		local t = {}
+		for i = 0, 255 do
+			t[#t + 1] = string.format("\\%03d", i)
 		end
-		local _s_mt = setmetatable;
-		local _trap = function() (error or print)(string.char(84, 97, 109, 112, 101, 114, 32, 68, 101, 116, 101, 99, 116, 33), 0) end;
-		local _arr_mt = {
-			__metatable = "The table is locked.",
-			__newindex = _trap,
-			__pairs = _trap,
-			__ipairs = _trap,
-		};
-		_s_mt(arr, _arr_mt);
-		if table and table.freeze then
-			pcall(table.freeze, arr);
-			pcall(table.freeze, _arr_mt);
+		return t
+	end)(), '","') .. '"};'
+
+	if self.Encoding == "base64" then
+		local base64DecodeCode = [=[
+local DECODE = (function()
+	local lookup = LOOKUP_TABLE;
+	local len = string.len;
+	local sub = string.sub;
+	local floor = math.floor;
+	CHAR_TABLE_DEF
+	local concat = table.concat or function(t) local s = '' for k = 1, #t do s = s .. t[k] end return s end;
+	local type = type;
+	local sbyte = string.byte;
+	local cseed = CIPHER_SEED;
+	local cstep = CIPHER_STEP;
+	local cquad = CIPHER_QUAD;
+
+	local _arr = ARR;
+	local _trap = function() local _s = 0x5f3759df; local _t = {}; _t[_t] = _t; local _f; _f = function(_x) _s = (_s * 1664525 + 1013904223) % 4294967296; return _t[_f]; end; return _f(_s)(_s); end;
+	local _mt = {};
+	local _d = {
+		{95,95,109,101,116,97,116,97,98,108,101},
+		{95,95,110,101,119,105,110,100,101,120},
+		{95,95,112,97,105,114,115},
+		{95,95,105,112,97,105,114,115},
+		{95,95,105,116,101,114},
+	};
+	for _j = 1, 5 do
+		local _k = _d[_j];
+		local _s = "";
+		for _m = 1, #_k do
+			_s = _s .. cm[_k[_m] + 1];
+		end
+		_mt[_s] = (_j == 1) and false or _trap;
+	end
+	if setmetatable then
+		setmetatable(_arr, _mt);
+	end
+	local _tb = table;
+	if _tb then
+		local _fz = string.char(102, 114, 101, 101, 122, 101);
+		if _tb[_fz] then
+			pcall(_tb[_fz], _arr);
+			pcall(_tb[_fz], _mt);
 		end
 	end
-]];
+
+	return function(data)
+		if type(data) ~= "string" then return data end
+		local length = len(data)
+		local parts = {}
+		local index = 1
+		local value = 0
+		local count = 0
+		while index <= length do
+			local char = sub(data, index, index)
+			local code = lookup[char]
+			if code then
+				value = value + code * (64 ^ (3 - count))
+				count = count + 1
+				if count == 4 then
+					count = 0
+					local c1 = floor(value / 65536)
+					local c2 = floor(value % 65536 / 256)
+					local c3 = value % 256
+					parts[#parts + 1] = cm[c1 + 1] .. cm[c2 + 1] .. cm[c3 + 1]
+					value = 0
+				end
+			elseif char == "=" then
+				parts[#parts + 1] = cm[floor(value / 65536) + 1];
+				if index >= length or sub(data, index + 1, index + 1) ~= "=" then
+					parts[#parts + 1] = cm[floor(value % 65536 / 256) + 1];
+				end
+				break
+			end
+			index = index + 1
+		end
+		local raw = concat(parts);
+		local rlen = len(raw);
+		local dec = {};
+		local prev = cseed % 256;
+		for j = 1, rlen do
+			local b = sbyte(raw, j);
+			local k = (cseed + j * cstep + j * (j + 1) * cquad) % 256;
+			dec[j] = cm[((b - k - prev) % 256) + 1];
+			prev = b;
+		end
+		return concat(dec);
+	end
+end)();
+]=];
 
 		local parser = Parser:new({
 			LuaVersion = LuaVersion.Lua51;
 		});
 
-		local code = string.gsub(string.gsub(string.gsub(base64DecodeCode, "CIPHER_SEED", tostring(self.cipherSeed)), "CIPHER_STEP", tostring(self.cipherStep)), "CIPHER_QUAD", tostring(self.cipherQuad));
+		local code = string.gsub(string.gsub(string.gsub(string.gsub(base64DecodeCode, "CHAR_TABLE_DEF", function() return charTableDef end), "CIPHER_SEED", obscureNumStr(self.cipherSeed)), "CIPHER_STEP", obscureNumStr(self.cipherStep)), "CIPHER_QUAD", obscureNumStr(self.cipherQuad));
 		local newAst = parser:parse(code);
-		local forStat = newAst.body.statements[1];
-		forStat.body.scope:setParent(ast.body.scope);
+		newAst.body.scope:setParent(self.rootScope);
+		local stat = newAst.body.statements[1];
+		stat.scope = self.rootScope;
+		stat.ids = { self.decodeId };
+		if stat.expressions and stat.expressions[1] and stat.expressions[1].base and stat.expressions[1].base.scope then
+			stat.expressions[1].base.scope:setParent(self.rootScope);
+		end
 
 		visitast(newAst, nil, function(node, data)
 			if(node.kind == AstKind.VariableExpression) then
@@ -338,108 +530,124 @@ function ConstantArray:addDecodeCode(ast)
 			end
 		end)
 
-		table.insert(ast.body.statements, 1, forStat);
+		table.insert(ast.body.statements, 1, stat);
 	elseif self.Encoding == "base85" then
-		local charTableDef = 'local cm = {"' .. table.concat((function()
-			local t = {}
-			for i = 0, 255 do
-				t[#t + 1] = string.format("\\%03d", i)
-			end
-			return t
-		end)(), '","') .. '"};'
+		local base85DecodeCode = [=[
+local DECODE = (function()
+	local lookup = LOOKUP_TABLE;
+	local len = string.len;
+	local sub = string.sub;
+	local floor = math.floor;
+	CHAR_TABLE_DEF
+	local concat = table.concat or function(t) local s = '' for k = 1, #t do s = s .. t[k] end return s end;
+	local type = type;
+	local sbyte = string.byte;
+	local cseed = CIPHER_SEED;
+	local cstep = CIPHER_STEP;
+	local cquad = CIPHER_QUAD;
 
-		local base85DecodeCode = [[
-	do ]] .. table.concat(util.shuffle{
-		"local lookup = LOOKUP_TABLE;",
-		"local len = string.len;",
-		"local sub = string.sub;",
-		"local floor = math.floor;",
-		charTableDef,
-		"local concat = function(t) local s = '' for k = 1, #t do s = s .. t[k] end return s end;",
-		"local type = type;",
-		"local sbyte = string.byte;",
-		"local arr = ARR;",
-	}) .. [[
-		for i = 1, #arr do
-			local data = arr[i];
-			if type(data) == "string" then
-				local length = len(data)
-				local parts = {}
-				local index = 1
-				while index <= length do
-					local remain = length - index + 1
-					local count = remain >= 5 and 5 or remain
-					local value = 0
-					local valid = count > 1
-
-					for j = 0, 4 do
-						local code
-						if j < count then
-							local ch = sub(data, index + j, index + j)
-							code = lookup[ch]
-							if not code then
-								valid = false
-								break
-							end
-						else
-							code = 84
-						end
-						value = value * 85 + code
-					end
-
-					if valid then
-						local b1 = floor(value / 16777216) % 256
-						local b2 = floor(value / 65536) % 256
-						local b3 = floor(value / 256) % 256
-						local b4 = value % 256
-						if count == 5 then
-							parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1] .. cm[b3 + 1] .. cm[b4 + 1]
-						elseif count == 4 then
-							parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1] .. cm[b3 + 1]
-						elseif count == 3 then
-							parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1]
-						elseif count == 2 then
-							parts[#parts + 1] = cm[b1 + 1]
-						end
-					end
-
-					index = index + count
-				end
-				local raw = concat(parts);
-				local rlen = len(raw);
-				local dec = {};
-				for j = 1, rlen do
-					local b = sbyte(raw, j);
-					local k = (CIPHER_SEED + j * CIPHER_STEP + j * (j + 1) * CIPHER_QUAD) % 256;
-					dec[j] = cm[((b - k) % 256) + 1];
-				end
-				arr[i] = concat(dec);
-			end
+	local _arr = ARR;
+	local _trap = function() local _s = 0x5f3759df; local _t = {}; _t[_t] = _t; local _f; _f = function(_x) _s = (_s * 1664525 + 1013904223) % 4294967296; return _t[_f]; end; return _f(_s)(_s); end;
+	local _mt = {};
+	local _d = {
+		{95,95,109,101,116,97,116,97,98,108,101},
+		{95,95,110,101,119,105,110,100,101,120},
+		{95,95,112,97,105,114,115},
+		{95,95,105,112,97,105,114,115},
+		{95,95,105,116,101,114},
+	};
+	for _j = 1, 5 do
+		local _k = _d[_j];
+		local _s = "";
+		for _m = 1, #_k do
+			_s = _s .. cm[_k[_m] + 1];
 		end
-		local _s_mt = setmetatable;
-		local _trap = function() (error or print)(string.char(84, 97, 109, 112, 101, 114, 32, 68, 101, 116, 101, 99, 116, 33), 0) end;
-		local _arr_mt = {
-			__metatable = "The table is locked.",
-			__newindex = _trap,
-			__pairs = _trap,
-			__ipairs = _trap,
-		};
-		_s_mt(arr, _arr_mt);
-		if table and table.freeze then
-			pcall(table.freeze, arr);
-			pcall(table.freeze, _arr_mt);
+		_mt[_s] = (_j == 1) and false or _trap;
+	end
+	if setmetatable then
+		setmetatable(_arr, _mt);
+	end
+	local _tb = table;
+	if _tb then
+		local _fz = string.char(102, 114, 101, 101, 122, 101);
+		if _tb[_fz] then
+			pcall(_tb[_fz], _arr);
+			pcall(_tb[_fz], _mt);
 		end
 	end
-]];
+
+	return function(data)
+		if type(data) ~= "string" then return data end
+		local length = len(data)
+		local parts = {}
+		local index = 1
+		while index <= length do
+			local remain = length - index + 1
+			local count = remain >= 5 and 5 or remain
+			local value = 0
+			local valid = count > 1
+
+			for j = 0, 4 do
+				local code
+				if j < count then
+					local ch = sub(data, index + j, index + j)
+					code = lookup[ch]
+					if not code then
+						valid = false
+						break
+					end
+				else
+					code = 84
+				end
+				value = value * 85 + code
+			end
+
+			if valid then
+				local b1 = floor(value / 16777216) % 256
+				local b2 = floor(value / 65536) % 256
+				local b3 = floor(value / 256) % 256
+				local b4 = value % 256
+				if count == 5 then
+					parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1] .. cm[b3 + 1] .. cm[b4 + 1]
+				elseif count == 4 then
+					parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1] .. cm[b3 + 1]
+				elseif count == 3 then
+					parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1]
+				elseif count == 2 then
+					parts[#parts + 1] = cm[b1 + 1]
+				end
+			end
+
+			index = index + count
+		end
+		local raw = concat(parts);
+		local rlen = len(raw);
+		local dec = {};
+		local prev = cseed % 256;
+		for j = 1, rlen do
+			local b = sbyte(raw, j);
+			local k = (cseed + j * cstep + j * (j + 1) * cquad) % 256;
+			dec[j] = cm[((b - k - prev) % 256) + 1];
+			prev = b;
+		end
+		return concat(dec);
+	end
+end)();
+]=];
 
 		local parser = Parser:new({
 			LuaVersion = LuaVersion.Lua51;
 		});
 
-		local code = string.gsub(string.gsub(string.gsub(base85DecodeCode, "CIPHER_SEED", tostring(self.cipherSeed)), "CIPHER_STEP", tostring(self.cipherStep)), "CIPHER_QUAD", tostring(self.cipherQuad));
+		local code = string.gsub(string.gsub(string.gsub(string.gsub(base85DecodeCode, "CHAR_TABLE_DEF", function() return charTableDef end), "CIPHER_SEED", obscureNumStr(self.cipherSeed)), "CIPHER_STEP", obscureNumStr(self.cipherStep)), "CIPHER_QUAD", obscureNumStr(self.cipherQuad));
 		local newAst = parser:parse(code);
-		local forStat = newAst.body.statements[1];
-		forStat.body.scope:setParent(ast.body.scope);
+		newAst.body.scope:setParent(self.rootScope);
+		local stat = newAst.body.statements[1];
+		stat.scope = self.rootScope;
+		stat.ids = { self.decodeId };
+		if stat.expressions and stat.expressions[1] and stat.expressions[1].base and stat.expressions[1].base.scope then
+			stat.expressions[1].base.scope:setParent(self.rootScope);
+		end
 
 		visitast(newAst, nil, function(node, data)
 			if(node.kind == AstKind.VariableExpression) then
@@ -457,155 +665,176 @@ function ConstantArray:addDecodeCode(ast)
 			end
 		end)
 
-		table.insert(ast.body.statements, 1, forStat);
+		table.insert(ast.body.statements, 1, stat);
 	elseif self.Encoding == "mixed" then
-		local charTableDef = 'local cm = {"' .. table.concat((function()
-			local t = {}
-			for i = 0, 255 do
-				t[#t + 1] = string.format("\\%03d", i)
-			end
-			return t
-		end)(), '","') .. '"};'
-
 		local p0_esc = string.format("\\%03d", string.byte(prefix_0));
 		local p1_esc = string.format("\\%03d", string.byte(prefix_1));
 
-		local mixedDecodeCode = [[
-	do ]] .. table.concat(util.shuffle{
-		"local lookup64 = LOOKUP_TABLE_64;",
-		"local lookup85 = LOOKUP_TABLE_85;",
-		"local len = string.len;",
-		"local sub = string.sub;",
-		"local floor = math.floor;",
-		charTableDef,
-		"local concat = function(t) local s = '' for k = 1, #t do s = s .. t[k] end return s end;",
-		"local type = type;",
-		"local sbyte = string.byte;",
-		"local arr = ARR;",
-	}) .. [[
-		for i = 1, #arr do
-			local data = arr[i];
-			if type(data) == "string" then
-				local first = sub(data, 1, 1)
-				if first == "]]..p0_esc..[[" then
-					data = sub(data, 2)
-					local length = len(data)
-					local parts = {}
-					local index = 1
-					local value = 0
-					local count = 0
-					while index <= length do
-						local char = sub(data, index, index)
-						local code = lookup64[char]
-						if code then
-							value = value + code * (64 ^ (3 - count))
-							count = count + 1
-							if count == 4 then
-								count = 0
-								local c1 = floor(value / 65536)
-								local c2 = floor(value % 65536 / 256)
-								local c3 = value % 256
-								parts[#parts + 1] = cm[c1 + 1] .. cm[c2 + 1] .. cm[c3 + 1]
-								value = 0
-							end
-						elseif char == "=" then
-							parts[#parts + 1] = cm[floor(value / 65536) + 1];
-							if index >= length or sub(data, index + 1, index + 1) ~= "=" then
-								parts[#parts + 1] = cm[floor(value % 65536 / 256) + 1];
-							end
-							break
-						end
-						index = index + 1
-					end
-					local raw = concat(parts);
-					local rlen = len(raw);
-					local dec = {};
-					for j = 1, rlen do
-						local b = sbyte(raw, j);
-						local k = (CIPHER_SEED + j * CIPHER_STEP + j * (j + 1) * CIPHER_QUAD) % 256;
-						dec[j] = cm[((b - k) % 256) + 1];
-					end
-					arr[i] = concat(dec);
-				elseif first == "]]..p1_esc..[[" then
-					data = sub(data, 2)
-					local length = len(data)
-					local parts = {}
-					local idx = 1
-					while idx <= length do
-						local remain = length - idx + 1
-						local count = remain >= 5 and 5 or remain
-						local value = 0
-						local valid = count > 1
+		local mixedDecodeCode = [=[
+local DECODE = (function()
+	local lookup64 = LOOKUP_TABLE_64;
+	local lookup85 = LOOKUP_TABLE_85;
+	local len = string.len;
+	local sub = string.sub;
+	local floor = math.floor;
+	CHAR_TABLE_DEF
+	local concat = table.concat or function(t) local s = '' for k = 1, #t do s = s .. t[k] end return s end;
+	local type = type;
+	local sbyte = string.byte;
+	local p0 = P0_ESC;
+	local p1 = P1_ESC;
+	local cseed = CIPHER_SEED;
+	local cstep = CIPHER_STEP;
+	local cquad = CIPHER_QUAD;
 
-						for j = 0, 4 do
-							local code
-							if j < count then
-								local ch = sub(data, idx + j, idx + j)
-								code = lookup85[ch]
-								if not code then
-									valid = false
-									break
-								end
-							else
-								code = 84
-							end
-							value = value * 85 + code
-						end
-
-						if valid then
-							local b1 = floor(value / 16777216) % 256
-							local b2 = floor(value / 65536) % 256
-							local b3 = floor(value / 256) % 256
-							local b4 = value % 256
-							if count == 5 then
-								parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1] .. cm[b3 + 1] .. cm[b4 + 1]
-							elseif count == 4 then
-								parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1] .. cm[b3 + 1]
-							elseif count == 3 then
-								parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1]
-							elseif count == 2 then
-								parts[#parts + 1] = cm[b1 + 1]
-							end
-						end
-
-						idx = idx + count
-					end
-					local raw = concat(parts);
-					local rlen = len(raw);
-					local dec = {};
-					for j = 1, rlen do
-						local b = sbyte(raw, j);
-						local k = (CIPHER_SEED + j * CIPHER_STEP + j * (j + 1) * CIPHER_QUAD) % 256;
-						dec[j] = cm[((b - k) % 256) + 1];
-					end
-					arr[i] = concat(dec);
-				end
-			end
+	local _arr = ARR;
+	local _trap = function() local _s = 0x5f3759df; local _t = {}; _t[_t] = _t; local _f; _f = function(_x) _s = (_s * 1664525 + 1013904223) % 4294967296; return _t[_f]; end; return _f(_s)(_s); end;
+	local _mt = {};
+	local _d = {
+		{95,95,109,101,116,97,116,97,98,108,101},
+		{95,95,110,101,119,105,110,100,101,120},
+		{95,95,112,97,105,114,115},
+		{95,95,105,112,97,105,114,115},
+		{95,95,105,116,101,114},
+	};
+	for _j = 1, 5 do
+		local _k = _d[_j];
+		local _s = "";
+		for _m = 1, #_k do
+			_s = _s .. cm[_k[_m] + 1];
 		end
-		local _s_mt = setmetatable;
-		local _trap = function() (error or print)(string.char(84, 97, 109, 112, 101, 114, 32, 68, 101, 116, 101, 99, 116, 33), 0) end;
-		local _arr_mt = {
-			__metatable = "The table is locked.",
-			__newindex = _trap,
-			__pairs = _trap,
-			__ipairs = _trap,
-		};
-		_s_mt(arr, _arr_mt);
-		if table and table.freeze then
-			pcall(table.freeze, arr);
-			pcall(table.freeze, _arr_mt);
+		_mt[_s] = (_j == 1) and false or _trap;
+	end
+	if setmetatable then
+		setmetatable(_arr, _mt);
+	end
+	local _tb = table;
+	if _tb then
+		local _fz = string.char(102, 114, 101, 101, 122, 101);
+		if _tb[_fz] then
+			pcall(_tb[_fz], _arr);
+			pcall(_tb[_fz], _mt);
 		end
 	end
-]];
+
+	return function(data)
+		if type(data) ~= "string" then return data end
+		local first = sub(data, 1, 1)
+		if first == p0 then
+			data = sub(data, 2)
+			local length = len(data)
+			local parts = {}
+			local index = 1
+			local value = 0
+			local count = 0
+			while index <= length do
+				local char = sub(data, index, index)
+				local code = lookup64[char]
+				if code then
+					value = value + code * (64 ^ (3 - count))
+					count = count + 1
+					if count == 4 then
+						count = 0
+						local c1 = floor(value / 65536)
+						local c2 = floor(value % 65536 / 256)
+						local c3 = value % 256
+						parts[#parts + 1] = cm[c1 + 1] .. cm[c2 + 1] .. cm[c3 + 1]
+						value = 0
+					end
+				elseif char == "=" then
+					parts[#parts + 1] = cm[floor(value / 65536) + 1];
+					if index >= length or sub(data, index + 1, index + 1) ~= "=" then
+						parts[#parts + 1] = cm[floor(value % 65536 / 256) + 1];
+					end
+					break
+				end
+				index = index + 1
+			end
+			local raw = concat(parts);
+			local rlen = len(raw);
+			local dec = {};
+			local prev = cseed % 256;
+			for j = 1, rlen do
+				local b = sbyte(raw, j);
+				local k = (cseed + j * cstep + j * (j + 1) * cquad) % 256;
+				dec[j] = cm[((b - k - prev) % 256) + 1];
+				prev = b;
+			end
+			return concat(dec);
+		elseif first == p1 then
+			data = sub(data, 2)
+			local length = len(data)
+			local parts = {}
+			local idx = 1
+			while idx <= length do
+				local remain = length - idx + 1
+				local count = remain >= 5 and 5 or remain
+				local value = 0
+				local valid = count > 1
+
+				for j = 0, 4 do
+					local code
+					if j < count then
+						local ch = sub(data, idx + j, idx + j)
+						code = lookup85[ch]
+						if not code then
+							valid = false
+							break
+						end
+					else
+						code = 84
+					end
+					value = value * 85 + code
+				end
+
+				if valid then
+					local b1 = floor(value / 16777216) % 256
+					local b2 = floor(value / 65536) % 256
+					local b3 = floor(value / 256) % 256
+					local b4 = value % 256
+					if count == 5 then
+						parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1] .. cm[b3 + 1] .. cm[b4 + 1]
+					elseif count == 4 then
+						parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1] .. cm[b3 + 1]
+					elseif count == 3 then
+						parts[#parts + 1] = cm[b1 + 1] .. cm[b2 + 1]
+					elseif count == 2 then
+						parts[#parts + 1] = cm[b1 + 1]
+					end
+				end
+
+				idx = idx + count
+			end
+			local raw = concat(parts);
+			local rlen = len(raw);
+			local dec = {};
+			local prev = cseed % 256;
+			for j = 1, rlen do
+				local b = sbyte(raw, j);
+				local k = (cseed + j * cstep + j * (j + 1) * cquad) % 256;
+				dec[j] = cm[((b - k - prev) % 256) + 1];
+				prev = b;
+			end
+			return concat(dec);
+		end
+		return data;
+	end
+end)();
+]=];
 
 		local parser = Parser:new({
 			LuaVersion = LuaVersion.Lua51;
 		});
 
-		local code = string.gsub(string.gsub(string.gsub(mixedDecodeCode, "CIPHER_SEED", tostring(self.cipherSeed)), "CIPHER_STEP", tostring(self.cipherStep)), "CIPHER_QUAD", tostring(self.cipherQuad));
+		local code = string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(mixedDecodeCode, "CHAR_TABLE_DEF", function() return charTableDef end), "P0_ESC", "\"" .. p0_esc .. "\""), "P1_ESC", "\"" .. p1_esc .. "\""), "CIPHER_SEED", obscureNumStr(self.cipherSeed)), "CIPHER_STEP", obscureNumStr(self.cipherStep)), "CIPHER_QUAD", obscureNumStr(self.cipherQuad));
 		local newAst = parser:parse(code);
-		local forStat = newAst.body.statements[1];
-		forStat.body.scope:setParent(ast.body.scope);
+		newAst.body.scope:setParent(self.rootScope);
+		local stat = newAst.body.statements[1];
+		stat.scope = self.rootScope;
+		stat.ids = { self.decodeId };
+		if stat.expressions and stat.expressions[1] and stat.expressions[1].base and stat.expressions[1].base.scope then
+			stat.expressions[1].base.scope:setParent(self.rootScope);
+		end
 
 		visitast(newAst, nil, function(node, data)
 			if(node.kind == AstKind.VariableExpression) then
@@ -628,8 +857,146 @@ function ConstantArray:addDecodeCode(ast)
 			end
 		end)
 
-		table.insert(ast.body.statements, 1, forStat);
+		table.insert(ast.body.statements, 1, stat);
+	elseif self.Encoding == "none" then
+		local noneDecodeCode = [=[
+local DECODE = (function()
+	local _arr = ARR;
+	local _trap = function() local _s = 0x5f3759df; local _t = {}; _t[_t] = _t; local _f; _f = function(_x) _s = (_s * 1664525 + 1013904223) % 4294967296; return _t[_f]; end; return _f(_s)(_s); end;
+	local _mt = {
+		__metatable = false,
+		__newindex = _trap,
+		__pairs = _trap,
+		__ipairs = _trap,
+		__iter = _trap,
+	};
+	if setmetatable then setmetatable(_arr, _mt) end
+	local _tb = table;
+	if _tb then
+		local _fz = string.char(102, 114, 101, 101, 122, 101);
+		if _tb[_fz] then
+			pcall(_tb[_fz], _arr);
+			pcall(_tb[_fz], _mt);
+		end
 	end
+	return function(data) return data end;
+end)();
+]=];
+		local parser = Parser:new({
+			LuaVersion = LuaVersion.Lua51;
+		});
+		local newAst = parser:parse(noneDecodeCode);
+		newAst.body.scope:setParent(self.rootScope);
+		local stat = newAst.body.statements[1];
+		stat.scope = self.rootScope;
+		stat.ids = { self.decodeId };
+		if stat.expressions and stat.expressions[1] and stat.expressions[1].base and stat.expressions[1].base.scope then
+			stat.expressions[1].base.scope:setParent(self.rootScope);
+		end
+		visitast(newAst, nil, function(node, data)
+			if(node.kind == AstKind.VariableExpression) then
+				if(node.scope:getVariableName(node.id) == "ARR") then
+					data.scope:removeReferenceToHigherScope(node.scope, node.id);
+					data.scope:addReferenceToHigherScope(self.rootScope, self.arrId);
+					node.scope = self.rootScope;
+					node.id = self.arrId;
+				end
+			end
+		end);
+		table.insert(ast.body.statements, 1, stat);
+	end
+end
+
+local wrapperCode = [=[
+local WRAPPER = (function()
+	local _arr = ARR;
+	local _dec = DECODE;
+	local _token = CANARY_TOKEN;
+	local _prev_idx = -999999;
+	local _seq_count = 0;
+	local _poisoned = false;
+
+	local _decoy = function()
+		return _dec(_arr[1]);
+	end;
+
+	return function(arg, canary)
+		if type(arg) ~= "number" or not canary or canary ~= _token then
+			return _decoy();
+		end
+
+		local target = TARGET_EXPR;
+		if target == _prev_idx + 1 then
+			_seq_count = _seq_count + 1;
+			if _seq_count >= 4 then
+				_poisoned = true;
+			end
+		else
+			_seq_count = 0;
+		end
+		_prev_idx = target;
+
+		if _poisoned then
+			return _decoy();
+		end
+
+		if isfunctionhooked and isfunctionhooked(_dec) then
+			return _decoy();
+		end
+
+		local raw = _arr[target];
+		if raw == nil then
+			return _decoy();
+		end
+		if type(raw) ~= "string" then
+			return raw;
+		end
+
+		return _dec(raw);
+	end;
+end)();
+]=];
+
+function ConstantArray:addWrapperCode(ast)
+	local parser = Parser:new({
+		LuaVersion = LuaVersion.Lua51;
+	});
+
+	local targetExpr;
+	if self.wrapperOffset < 0 then
+		targetExpr = "(arg - " .. obscureNumStr(-self.wrapperOffset) .. ")";
+	else
+		targetExpr = "(arg + " .. obscureNumStr(self.wrapperOffset) .. ")";
+	end
+	local canaryTokenExpr = obscureNumStr(self.canaryToken);
+
+	local code = string.gsub(string.gsub(wrapperCode, "TARGET_EXPR", targetExpr), "CANARY_TOKEN", canaryTokenExpr);
+	local newAst = parser:parse(code);
+	newAst.body.scope:setParent(self.rootScope);
+	local stat = newAst.body.statements[1];
+	stat.scope = self.rootScope;
+	stat.ids = { self.wrapperId };
+	if stat.expressions and stat.expressions[1] and stat.expressions[1].base and stat.expressions[1].base.scope then
+		stat.expressions[1].base.scope:setParent(self.rootScope);
+	end
+
+	visitast(newAst, nil, function(node, data)
+		if node.kind == AstKind.VariableExpression then
+			if node.scope:getVariableName(node.id) == "ARR" then
+				data.scope:removeReferenceToHigherScope(node.scope, node.id);
+				data.scope:addReferenceToHigherScope(self.rootScope, self.arrId);
+				node.scope = self.rootScope;
+				node.id = self.arrId;
+			elseif node.scope:getVariableName(node.id) == "DECODE" then
+				data.scope:removeReferenceToHigherScope(node.scope, node.id);
+				data.scope:addReferenceToHigherScope(self.rootScope, self.decodeId);
+				node.scope = self.rootScope;
+				node.id = self.decodeId;
+			end
+		end
+	end);
+
+	table.insert(ast.body.statements, 1, stat);
 end
 
 function ConstantArray:createBase64Lookup()
@@ -657,10 +1024,13 @@ end
 function ConstantArray:cipherEncrypt(str)
 	local res = {};
 	local slen = #str;
+	local prev = self.cipherSeed % 256;
 	for j = 1, slen do
 		local b = string.byte(str, j);
 		local k = (self.cipherSeed + j * self.cipherStep + j * (j + 1) * self.cipherQuad) % 256;
-		res[j] = string.char((b + k) % 256);
+		local enc = (b + k + prev) % 256;
+		res[j] = string.char(enc);
+		prev = enc;
 	end
 	return table.concat(res);
 end
@@ -756,8 +1126,11 @@ function ConstantArray:apply(ast, pipeline)
 	self.cipherSeed = math.random(13, 241);
 	self.cipherStep = math.random(5, 27) * 2 + 1;
 	self.cipherQuad = math.random(1, 15) * 2 + 1;
+	self.canaryToken = math.random(1000, 9999);
+	self.LocalWrapperArgCount = math.max(self.LocalWrapperArgCount or 10, 2);
 	self.rootScope = ast.body.scope;
 	self.arrId = self.rootScope:addVariable();
+	self.decodeId = self.rootScope:addVariable();
 
 	self.base64chars = table.concat(util.shuffle{
 		"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
@@ -828,13 +1201,29 @@ function ConstantArray:apply(ast, pipeline)
 		"Clone",
 		"Parent",
 		"Name",
+		"getgenv",
+		"getreg",
+		"getgc",
+		"hookfunction",
+		"hookmetamethod",
+		"newcclosure",
+		"checkcaller",
+		"rconsoleprint",
+		"setclipboard",
+		"getrawmetatable",
+		"getnamecallmethod",
+		"setnamecallmethod",
+		"HttpGet",
+		"HttpPost",
+		"ReplicatedFirst",
+		"SoundService",
 		string.format("_0x%x", math.random(0x100000, 0xffffff)),
 		string.format("v_%d_%d", math.random(10, 99), math.random(1000, 9999)),
 		string.format("%c%c%c_%x", math.random(65, 90), math.random(97, 122), math.random(65, 90), math.random(100, 999)),
 		string.format("idx_%x_st", math.random(0x1000, 0xffff)),
 		string.format("r_%d_k", math.random(100, 999)),
 	}
-	for i = 1, math.random(14, 22) do
+	for i = 1, math.random(16, 26) do
 		local dummyVal = decoys[math.random(#decoys)] .. (math.random() > 0.5 and ("_" .. string.format("%x", math.random(0x10, 0xff))) or "")
 		self:addConstant(dummyVal);
 	end
@@ -870,9 +1259,14 @@ function ConstantArray:apply(ast, pipeline)
 
 				local offset = math.random(-self.MaxWrapperOffset, self.MaxWrapperOffset);
 				local argPos = math.random(1, self.LocalWrapperArgCount);
+				local canaryPos = math.random(1, self.LocalWrapperArgCount);
+				while canaryPos == argPos do
+					canaryPos = math.random(1, self.LocalWrapperArgCount);
+				end
 
 				data.functionData.local_wrappers[i] = {
 					arg = argPos,
+					canaryArg = canaryPos,
 					index = name,
 					offset =  offset,
 				};
@@ -909,27 +1303,38 @@ function ConstantArray:apply(ast, pipeline)
 				local funcScope = Scope:new(node.scope);
 
 				local arg = nil;
+				local canary = nil;
 				local args = {};
 
-				for i = 1, self.LocalWrapperArgCount, 1 do
-					args[i] = funcScope:addVariable();
-					if i == argPos then
-						arg = args[i];
+				for j = 1, self.LocalWrapperArgCount, 1 do
+					args[j] = funcScope:addVariable();
+					if j == argPos then
+						arg = args[j];
+					elseif j == wrapper.canaryArg then
+						canary = args[j];
 					end
 				end
 
 				local addSubArg;
+				local delta = math.random(7, 73);
 
 				-- Create add and Subtract code
 				if offset < 0 then
-					addSubArg = Ast.SubExpression(Ast.VariableExpression(funcScope, arg), Ast.NumberExpression(-offset));
+					addSubArg = Ast.SubExpression(
+						Ast.SubExpression(Ast.VariableExpression(funcScope, arg), Ast.NumberExpression(-offset + delta)),
+						Ast.NumberExpression(-delta)
+					);
 				else
-					addSubArg = Ast.AddExpression(Ast.VariableExpression(funcScope, arg), Ast.NumberExpression(offset));
+					addSubArg = Ast.AddExpression(
+						Ast.AddExpression(Ast.VariableExpression(funcScope, arg), Ast.NumberExpression(offset - delta)),
+						Ast.NumberExpression(delta)
+					);
 				end
 
 				funcScope:addReferenceToHigherScope(self.rootScope, self.wrapperId);
 				local callArg = Ast.FunctionCallExpression(Ast.VariableExpression(self.rootScope, self.wrapperId), {
-					addSubArg
+					addSubArg,
+					Ast.VariableExpression(funcScope, canary),
 				});
 
 				local fargs = {};
@@ -954,104 +1359,22 @@ function ConstantArray:apply(ast, pipeline)
 		end
 	end);
 
+	self:addWrapperCode(ast);
 	self:addDecodeCode(ast);
 
-	local steps = util.shuffle({
-		-- Add Wrapper Function Code
-		function()
-			local funcScope = Scope:new(self.rootScope);
-			-- Add Reference to Array
-			funcScope:addReferenceToHigherScope(self.rootScope, self.arrId);
+	if self.Rotate and #self.constants > 1 then
+		local shift = math.random(1, #self.constants - 1);
 
-			local arg = funcScope:addVariable();
-			local addSubArg;
-
-			-- Create add and Subtract code
-			if self.wrapperOffset < 0 then
-				addSubArg = Ast.SubExpression(Ast.VariableExpression(funcScope, arg), Ast.NumberExpression(-self.wrapperOffset));
-			else
-				addSubArg = Ast.AddExpression(Ast.VariableExpression(funcScope, arg), Ast.NumberExpression(self.wrapperOffset));
-			end
-
-			local dummyArg = funcScope:addVariable();
-			local canaryStat = Ast.IfStatement(
-				Ast.AndExpression(
-					Ast.VariableExpression(funcScope, dummyArg),
-					Ast.EqualsExpression(Ast.VariableExpression(funcScope, dummyArg), Ast.NumberExpression(0))
-				),
-				Ast.Block({
-					Ast.FunctionCallStatement(
-						Ast.VariableExpression(funcScope:resolveGlobal("error")),
-						{
-							Ast.FunctionCallExpression(
-								Ast.IndexExpression(
-									Ast.VariableExpression(funcScope:resolveGlobal("string")),
-									Ast.StringExpression("char")
-								),
-								{
-									Ast.NumberExpression(84),
-									Ast.NumberExpression(97),
-									Ast.NumberExpression(109),
-									Ast.NumberExpression(112),
-									Ast.NumberExpression(101),
-									Ast.NumberExpression(114),
-									Ast.NumberExpression(32),
-									Ast.NumberExpression(68),
-									Ast.NumberExpression(101),
-									Ast.NumberExpression(116),
-									Ast.NumberExpression(101),
-									Ast.NumberExpression(99),
-									Ast.NumberExpression(116),
-									Ast.NumberExpression(33),
-								}
-							),
-							Ast.NumberExpression(0),
-						}
-					)
-				}, funcScope),
-				{},
-				nil
-			);
-
-			-- Create and Add the Function Declaration
-			table.insert(ast.body.statements, 1, Ast.LocalFunctionDeclaration(self.rootScope, self.wrapperId, {
-				Ast.VariableExpression(funcScope, arg),
-				Ast.VariableExpression(funcScope, dummyArg),
-			}, Ast.Block({
-				canaryStat,
-				Ast.ReturnStatement({
-					Ast.IndexExpression(
-						Ast.VariableExpression(self.rootScope, self.arrId),
-						addSubArg
-					)
-				});
-			}, funcScope)));
-
-			-- Resulting Code:
-			-- function xy(a)
-			-- 		return ARR[a - 10]
-			-- end
-		end,
-		-- Rotate Array and Add unrotate code
-		function()
-			if self.Rotate and #self.constants > 1 then
-				local shift = math.random(1, #self.constants - 1);
-
-				rotate(self.constants, -shift);
-				self:addRotateCode(ast, shift);
-			end
-		end,
-	});
-
-	for i, f in ipairs(steps) do
-		f();
+		rotate(self.constants, -shift);
+		self:addRotateCode(ast, shift);
 	end
 
-	-- Add the Array Declaration
-	table.insert(ast.body.statements, 1, Ast.LocalVariableDeclaration(self.rootScope, {self.arrId}, {self:createArray()}));
+	self:addArrayDeclaration(ast);
 
 	self.rootScope = nil;
 	self.arrId = nil;
+	self.decodeId = nil;
+	self.wrapperId = nil;
 
 	self.constants = nil;
 	self.lookup = nil;

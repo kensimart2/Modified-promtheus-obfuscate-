@@ -274,4 +274,10 @@ function Pipeline:renameVariables(ast)
 	logger:info(string.format("Renaming Done in %.2f seconds", timeDiff));
 end
 
+function Pipeline.generateTrapCode(varName)
+	return util.generateTrapCode(varName);
+end
+
+Pipeline.generateTrapCodeStatic = Pipeline.generateTrapCode;
+
 return Pipeline;

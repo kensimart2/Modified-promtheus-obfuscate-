@@ -102,6 +102,18 @@ local function readonly(obj)
 	return r;
 end
 
+local function generateTrapCode(varName)
+	varName = varName or "_trap";
+	local seed = math.random(1000000, 99999999);
+	local a = math.random(1000, 9999) * 2 + 1;
+	local c = math.random(10000, 99999) * 2 + 1;
+	local m = 4294967296;
+	return string.format(
+		"local %s = function() local _s = %d; local _t = {}; _t[_t] = _t; local _f; _f = function(_x) _s = (_s * %d + %d) %% %d; return _t[_f]; end; return _f(_s)(_s); end;",
+		varName, seed, a, c, m
+	);
+end
+
 return {
 	lookupify = lookupify,
 	unlookupify = unlookupify,
@@ -110,5 +122,6 @@ return {
 	keys = keys,
 	shuffle = shuffle,
 	utf8char = utf8char,
-	readonly = readonly
+	readonly = readonly,
+	generateTrapCode = generateTrapCode,
 }

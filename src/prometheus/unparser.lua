@@ -161,9 +161,9 @@ function Unparser:unparseBlock(block, tabbing)
 
 	local function getWatermarkCode()
 		if self.prettyPrint then
-			return "\nlocal _ = [==[\n" .. self.watermarkBanner .. "\n]==];\n";
+			return "\nlocal _ = [==[\n" .. self.watermarkBanner .. "\n]==];\n(function(w) local a=137 for j=1,#w do a=(a*31+w:byte(j))%65536 end if a==0 then (function()end)(a) end end)(_);\n";
 		else
-			return ";local _=[==[\n" .. self.watermarkBanner .. "\n]==];";
+			return ";local _=[==[\n" .. self.watermarkBanner .. "\n]==];(function(w) local a=137 for j=1,#w do a=(a*31+w:byte(j))%65536 end if a==0 then (function()end)(a) end end)(_);";
 		end
 	end
 

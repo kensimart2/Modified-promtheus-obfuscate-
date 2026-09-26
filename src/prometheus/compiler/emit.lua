@@ -206,6 +206,79 @@ return function(Compiler)
                 table.insert(blockstats, stat.statement);
             end
 
+            if #blockstats > 1 and math.random() < 0.4 then
+                local k = math.random(100, 999);
+                local invVariant = math.random(1, 5);
+                local deadCond;
+
+                if invVariant == 1 then
+                    -- k * (k + 1) % 2 == 1 (never true)
+                    deadCond = Ast.EqualsExpression(
+                        Ast.ModExpression(
+                            Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(k + 1)),
+                            Ast.NumberExpression(2)
+                        ),
+                        Ast.NumberExpression(1)
+                    );
+                elseif invVariant == 2 then
+                    -- (k^2 + k) % 2 ~= 0 (never true)
+                    deadCond = Ast.NotEqualsExpression(
+                        Ast.ModExpression(
+                            Ast.AddExpression(Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(k)), Ast.NumberExpression(k)),
+                            Ast.NumberExpression(2)
+                        ),
+                        Ast.NumberExpression(0)
+                    );
+                elseif invVariant == 3 then
+                    -- (k * k) % 4 == 3 (quadratic residue mod 4 is only 0 or 1, never 3)
+                    deadCond = Ast.EqualsExpression(
+                        Ast.ModExpression(
+                            Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(k)),
+                            Ast.NumberExpression(4)
+                        ),
+                        Ast.NumberExpression(3)
+                    );
+                elseif invVariant == 4 then
+                    -- (k * (k + 1) * (k + 2)) % 6 ~= 0 (product of 3 consecutive integers is always divisible by 6)
+                    deadCond = Ast.NotEqualsExpression(
+                        Ast.ModExpression(
+                            Ast.MulExpression(
+                                Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(k + 1)),
+                                Ast.NumberExpression(k + 2)
+                            ),
+                            Ast.NumberExpression(6)
+                        ),
+                        Ast.NumberExpression(0)
+                    );
+                else
+                    -- Odd integer square mod 8 is always 1, so != 1 is never true
+                    local oddK = k * 2 + 1;
+                    deadCond = Ast.NotEqualsExpression(
+                        Ast.ModExpression(
+                            Ast.MulExpression(Ast.NumberExpression(oddK), Ast.NumberExpression(oddK)),
+                            Ast.NumberExpression(8)
+                        ),
+                        Ast.NumberExpression(1)
+                    );
+                end
+
+                local bogusScope = Scope:new(block.scope);
+                bogusScope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
+                local bogusPosAssign = Ast.AssignmentStatement({
+                    Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
+                }, {
+                    Ast.NumberExpression(math.random(1, 2^24))
+                });
+                local deadIf = Ast.IfStatement(
+                    deadCond,
+                    Ast.Block({ bogusPosAssign }, bogusScope),
+                    {},
+                    nil
+                );
+                local insertIdx = math.random(1, #blockstats);
+                table.insert(blockstats, insertIdx, deadIf);
+            end
+
             local block = { id = id, index = i, block = Ast.Block(blockstats, block.scope) }
             table.insert(blocks, block);
             blocks[id] = block;
@@ -221,14 +294,17 @@ return function(Compiler)
             local boundExpr = Ast.NumberExpression(bound);
 
             if useAndOr then
-                -- Kept for compatibility with caller variations.
                 return Ast.LessThanExpression(posExpr, boundExpr);
             else
-                local variant = math.random(1, 2);
+                local variant = math.random(1, 4);
                 if variant == 1 then
                     return Ast.LessThanExpression(posExpr, boundExpr);
-                else
+                elseif variant == 2 then
                     return Ast.GreaterThanExpression(boundExpr, posExpr);
+                elseif variant == 3 then
+                    return Ast.LessThanOrEqualsExpression(posExpr, Ast.NumberExpression(bound - 1));
+                else
+                    return Ast.GreaterThanOrEqualsExpression(Ast.NumberExpression(bound - 1), posExpr);
                 end
             end
         end
@@ -291,20 +367,23 @@ return function(Compiler)
             local rBlock = buildElseifChain(tb, mid, r, ifScope);
 
             -- Randomly choose between different condition styles
-            local condStyle = math.random(1, 3);
+            local condStyle = math.random(1, 5);
             local condition;
             local trueBlock, falseBlock;
 
             if condStyle == 1 then
-                -- pos < bound
                 condition = Ast.LessThanExpression(self:pos(ifScope), Ast.NumberExpression(bound));
                 trueBlock, falseBlock = lBlock, rBlock;
             elseif condStyle == 2 then
-                -- bound > pos
                 condition = Ast.GreaterThanExpression(Ast.NumberExpression(bound), self:pos(ifScope));
                 trueBlock, falseBlock = lBlock, rBlock;
+            elseif condStyle == 3 then
+                condition = Ast.LessThanOrEqualsExpression(self:pos(ifScope), Ast.NumberExpression(bound - 1));
+                trueBlock, falseBlock = lBlock, rBlock;
+            elseif condStyle == 4 then
+                condition = Ast.GreaterThanOrEqualsExpression(Ast.NumberExpression(bound - 1), self:pos(ifScope));
+                trueBlock, falseBlock = lBlock, rBlock;
             else
-                -- Equivalent split using strict > with branches reversed.
                 condition = Ast.GreaterThanExpression(self:pos(ifScope), Ast.NumberExpression(bound));
                 trueBlock, falseBlock = rBlock, lBlock;
             end

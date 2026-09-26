@@ -125,7 +125,7 @@ return {
 					Encoding = "mixed",
 					LocalWrapperThreshold = 0.8,
 					LocalWrapperCount = 3,
-					LocalWrapperArgCount = 5,
+					LocalWrapperArgCount = 4,
 					MaxWrapperOffset = 256,
 				},
 			},

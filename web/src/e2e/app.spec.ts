@@ -17,7 +17,7 @@ test("loads under the GitHub Pages base and obfuscates input", async ({ page }) 
   const downloadPromise = page.waitForEvent("download")
   await page.getByRole("button", { name: "Download output" }).click()
   const download = await downloadPromise
-  expect(download.suggestedFilename()).toBe("prometheus.obfuscated.lua")
+  expect(download.suggestedFilename()).toBe("prometheus.obfuscated.txt")
 })
 
 test("runs input script and shows logs", async ({ page }) => {

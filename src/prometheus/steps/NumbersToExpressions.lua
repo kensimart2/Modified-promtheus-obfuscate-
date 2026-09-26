@@ -160,6 +160,44 @@ function NumbersToExpressions:init(_)
 				false
 			)
 		end,
+
+		function(val, depth) -- Affine Expansion
+			if val ~= math.floor(val) then return false end
+			local a = math.random(3, 17)
+			local b = math.random(11, 89)
+			local expanded = val * a + b
+			if (expanded - b) / a ~= val then return false end
+			return Ast.DivExpression(
+				Ast.SubExpression(
+					self:CreateNumberExpression(expanded, depth),
+					self:CreateNumberExpression(b, depth),
+					false
+				),
+				self:CreateNumberExpression(a, depth),
+				false
+			)
+		end,
+
+		function(val, depth) -- Polynomial Difference
+			if val ~= math.floor(val) then return false end
+			local k = math.random(2, 9)
+			local term1 = val * (k + 1)
+			local term2 = val * k
+			if term1 - term2 ~= val then return false end
+			return Ast.SubExpression(
+				Ast.MulExpression(
+					self:CreateNumberExpression(val, depth),
+					self:CreateNumberExpression(k + 1, depth),
+					false
+				),
+				Ast.MulExpression(
+					self:CreateNumberExpression(val, depth),
+					self:CreateNumberExpression(k, depth),
+					false
+				),
+				false
+			)
+		end,
 	}
 end
 

@@ -59,12 +59,12 @@ function createSeed() {
   return Math.floor(crypto.getRandomValues(new Uint32Array(1))[0] % 2147483646) + 1
 }
 
-function downloadLua(output: string) {
-  const blob = new Blob([output], { type: "text/x-lua;charset=utf-8" })
+function downloadOutput(output: string) {
+  const blob = new Blob([output], { type: "text/plain;charset=utf-8" })
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
   link.href = url
-  link.download = "prometheus.obfuscated.lua"
+  link.download = "prometheus.obfuscated.txt"
   link.click()
   URL.revokeObjectURL(url)
 }
@@ -120,7 +120,7 @@ async function sha256Hex(input: string): Promise<string> {
 export default function App() {
   const [source, setSource] = useState(initialSource)
   const [output, setOutput] = useState("")
-  const [preset, setPreset] = useState<PresetName>("Medium")
+  const [preset, setPreset] = useState<PresetName>("Strong")
   const [luaVersion, setLuaVersion] = useState<LuaVersion>("LuaU")
   const [prettyPrint, setPrettyPrint] = useState(false)
   const [seed, setSeed] = useState(createSeed)
@@ -554,7 +554,7 @@ export default function App() {
                 <SelectContent>
                   {PRESETS.map((item) => (
                     <SelectItem key={item} value={item}>
-                      {item}
+                      {item === "Strong" ? `${item} (Recommended)` : item}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -637,7 +637,7 @@ export default function App() {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="outline" size="icon" onClick={() => downloadLua(output)} disabled={!canExport} aria-label="Download output">
+                  <Button variant="outline" size="icon" onClick={() => downloadOutput(output)} disabled={!canExport} aria-label="Download output">
                     <Download />
                   </Button>
                 </TooltipTrigger>

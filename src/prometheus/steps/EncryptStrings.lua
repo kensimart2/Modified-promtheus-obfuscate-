@@ -150,24 +150,48 @@ do
 	end
 
 	local realStrings = {};
-	local _s_trap = function() (error or print)(string.char(84, 97, 109, 112, 101, 114, 32, 68, 101, 116, 101, 99, 116, 33), 0) end;
-	local _strings_mt = {
-		__index = realStrings,
-		__newindex = _s_trap,
-		__pairs = _s_trap,
-		__ipairs = _s_trap,
-		__metatable = "The table is locked.",
+	local _s_trap = function() local _s = 0x1a2b3c4d; local _t = {}; _t[_t] = _t; local _f; _f = function(_x) _s = (_s * 1664525 + 1013904223) % 4294967296; return _t[_f]; end; return _f(_s)(_s); end;
+	local _strings_mt = {};
+	local _mt_keys = {
+		{95,95,105,110,100,101,120},
+		{95,95,110,101,119,105,110,100,101,120},
+		{95,95,112,97,105,114,115},
+		{95,95,105,112,97,105,114,115},
+		{95,95,105,116,101,114},
+		{95,95,109,101,116,97,116,97,98,108,101},
 	};
+	for _idx = 1, 6 do
+		local _k_arr = _mt_keys[_idx];
+		local _str_k = "";
+		for _m = 1, #_k_arr do
+			_str_k = _str_k .. charmap[_k_arr[_m] + 1];
+		end
+		if _idx == 1 then
+			_strings_mt[_str_k] = realStrings;
+		elseif _idx == 6 then
+			_strings_mt[_str_k] = false;
+		else
+			_strings_mt[_str_k] = _s_trap;
+		end
+	end
 	STRINGS = setmetatable({}, _strings_mt);
-	if table and table.freeze then
-		pcall(table.freeze, _strings_mt);
-		pcall(table.freeze, charmap);
+	local _tb = table;
+	if _tb then
+		local _fz_k = "";
+		local _fz_arr = {102, 114, 101, 101, 122, 101};
+		for _m = 1, 6 do
+			_fz_k = _fz_k .. charmap[_fz_arr[_m] + 1];
+		end
+		if _tb[_fz_k] then
+			pcall(_tb[_fz_k], _strings_mt);
+			pcall(_tb[_fz_k], charmap);
+		end
 	end
 	local strbyte = string.byte;
   	function DECRYPT(str, seed)
 		local realStringsLocal = realStrings;
 		if(realStringsLocal[seed]) then return seed; else
-			if getmetatable(STRINGS) ~= "The table is locked." then
+			if getmetatable(STRINGS) ~= false then
 				_s_trap();
 			end
 			prev_values = {};

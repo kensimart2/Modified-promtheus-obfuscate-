@@ -160,6 +160,55 @@ end
 print = function(...)
   pushLog("info", ...)
 end
+warn = function(...)
+  pushLog("warn", ...)
+end
+
+unpack = table.unpack or unpack
+newproxy = newproxy or function(b)
+  local t = {}
+  if b then setmetatable(t, {}) end
+  return t
+end
+if not bit32 then
+  bit32 = {
+    bxor = function(a, b)
+      local r, m = 0, 1
+      while a > 0 or b > 0 do
+        local ra, rb = a % 2, b % 2
+        if ra ~= rb then r = r + m end
+        a, b, m = math.floor(a / 2), math.floor(b / 2), m * 2
+      end
+      return r
+    end,
+    band = function(a, b)
+      local r, m = 0, 1
+      while a > 0 and b > 0 do
+        if a % 2 == 1 and b % 2 == 1 then r = r + m end
+        a, b, m = math.floor(a / 2), math.floor(b / 2), m * 2
+      end
+      return r
+    end,
+    btest = function(a, b)
+      while a > 0 and b > 0 do
+        if a % 2 == 1 and b % 2 == 1 then return true end
+        a, b = math.floor(a / 2), math.floor(b / 2)
+      end
+      return false
+    end,
+  }
+end
+math.clamp = math.clamp or function(v, min, max)
+  if v < min then return min end
+  if v > max then return max end
+  return v
+end
+math.sign = math.sign or function(v)
+  if v > 0 then return 1 elseif v < 0 then return -1 else return 0 end
+end
+math.round = math.round or function(v)
+  return math.floor(v + 0.5)
+end
 
 local ok, err = xpcall(function()
   local chunk, loadErr = load(${toLuaLongString(options.source)}, ${toLuaLongString(options.filename)}, "t")
@@ -241,18 +290,16 @@ export async function runLuaScript(
   try {
     const LuaFactory = await getLuaFactoryConstructor()
     lua = await new LuaFactory(resolveWasmUri(glueWasmUrl)).createEngine({ openStandardLibs: true })
-    if (onLog) {
-      const luaGlobal = lua.global as unknown as {
-        set?: (name: string, value: (...args: unknown[]) => void) => void
-      }
-      luaGlobal.set?.("__prometheusPushLog", (level: unknown, ...parts: unknown[]) => {
-        const normalized: PrometheusLog = {
-          level: level === "warn" || level === "error" || level === "debug" ? level : "info",
-          message: parts.map((part) => String(part)).join(" "),
-        }
-        onLog(normalized)
-      })
+    const luaGlobal = lua.global as unknown as {
+      set?: (name: string, value: (...args: unknown[]) => void) => void
     }
+    luaGlobal.set?.("__prometheusPushLog", (level: unknown, ...parts: unknown[]) => {
+      const normalized: PrometheusLog = {
+        level: level === "warn" || level === "error" || level === "debug" ? level : "info",
+        message: parts.map((part) => String(part)).join(" "),
+      }
+      onLog?.(normalized)
+    })
 
     const result = (await lua.doString(buildScriptRunLua(options))) as {
       ok?: unknown
