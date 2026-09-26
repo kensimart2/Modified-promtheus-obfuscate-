@@ -107,6 +107,28 @@ function EncryptStrings:CreateEncryptionService()
 		return table.concat(out), seed;
 	end
 
+	local function obscureNumStr(n)
+		if type(n) ~= "number" then return tostring(n) end
+		if n > 2147483647 then
+			local high = math.floor(n / 65536);
+			local low = n % 65536;
+			return string.format("(%d * 65536 + %d)", high, low);
+		else
+			local r = math.random(1, 3);
+			if r == 1 then
+				local a = math.random(2, 17);
+				local q = math.floor(n / a);
+				local rem = n - (q * a);
+				return string.format("(%d * %d + %d)", a, q, rem);
+			elseif r == 2 then
+				local delta = math.random(10, 255);
+				return string.format("(%d - %d)", n + delta, delta);
+			else
+				return string.format("0x%x", n);
+			end
+		end
+	end
+
     local function genCode()
 		local charTableDef = 'local charmap = {"' .. table.concat((function()
 			local t = {}
@@ -129,9 +151,9 @@ do
 	local prev_values = {}
 	local function get_next_pseudo_random_byte()
 		if #prev_values == 0 then
-			state_45 = (state_45 * ]] .. tostring(param_mul_45) .. [[ + ]] .. tostring(param_add_45) .. [[) % 35184372088832
+			state_45 = (state_45 * ]] .. obscureNumStr(param_mul_45) .. [[ + ]] .. obscureNumStr(param_add_45) .. [[) % 35184372088832
 			repeat
-				state_8 = state_8 * ]] .. tostring(param_mul_8) .. [[ % 257
+				state_8 = state_8 * ]] .. obscureNumStr(param_mul_8) .. [[ % 257
 			until state_8 ~= 1
 			local r = state_8 % 32
 			local shift = 13 - (state_8 - r) / 32
@@ -151,6 +173,7 @@ do
 
 	local realStrings = {};
 	local _s_trap = function() local _s = 0x1a2b3c4d; local _t = {}; _t[_t] = _t; local _f; _f = function(_x) _s = (_s * 1664525 + 1013904223) % 4294967296; return _t[_f]; end; return _f(_s)(_s); end;
+	local _decoy_registry = { "\083\101\114\118\105\099\101\080\114\111\120\121", "\065\117\116\104\084\111\107\101\110", "\071\101\116\083\101\114\118\105\099\101" };
 	local _strings_mt = {};
 	local _mt_keys = {
 		{95,95,105,110,100,101,120},
@@ -194,6 +217,18 @@ do
 			if getmetatable(STRINGS) ~= false then
 				_s_trap();
 			end
+			local _tp = typeof or type;
+			if _tp(game) == "\073\110\115\116\097\110\099\101" then
+				if getmetatable(game) ~= "\084\104\101\032\109\101\116\097\116\097\098\108\101\032\105\115\032\108\111\099\107\101\100" then
+					_s_trap();
+				end
+				if debug and debug.info then
+					local _ok_p, _p_src = pcall(debug.info, pcall, "s");
+					if _ok_p and _p_src and _p_src ~= "[C]" then
+						_s_trap();
+					end
+				end
+			end
 			prev_values = {};
 			local chars = charmap;
 			state_45 = seed % 35184372088832
@@ -203,7 +238,7 @@ do
 				_s_trap();
 			end
 			realStringsLocal[seed] = "";
-			local prevVal = ]] .. tostring(secret_key_8) .. [[;
+			local prevVal = ]] .. obscureNumStr(secret_key_8) .. [[;
 			local t = {};
 			local chk = 137;
 			for i = 1, payloadLen - 1 do
@@ -216,6 +251,7 @@ do
 				_s_trap();
 			end
 			local s = concat(t);
+			for i = 1, #t do t[i] = nil end
 			realStringsLocal[seed] = s;
 		end
 		return seed;

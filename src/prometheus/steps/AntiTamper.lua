@@ -262,6 +262,14 @@ function AntiTamper:apply(ast, pipeline)
                 valid = false;
             end
         end
+        if table and table.freeze and table.isfrozen then
+            local _fz = { 1, 2 };
+            if _f_pcall(table.freeze, _fz) and table.isfrozen(_fz) then
+                if _f_pcall(function() _fz[1] = 9; end) and _fz[1] == 9 then
+                    valid = false;
+                end
+            end
+        end
         if math.clamp and (math.clamp(15, 0, 10) ~= 10 or math.clamp(-5, 0, 10) ~= 0) then
             valid = false;
         end
@@ -335,6 +343,8 @@ function AntiTamper:apply(ast, pipeline)
                 if _ok_s and _src and _src ~= "[C]" then return true; end
                 local _ok_l, _ln = _f_pcall(debug.info, fn, "l");
                 if _ok_l and _ln and _ln > 0 then return true; end
+                local _ok_a, _numparams = _f_pcall(debug.info, fn, "a");
+                if _ok_a and _numparams and _numparams < 0 then return true; end
             end
             if debug and debug.getinfo then
                 local _ok_i, _inf = _f_pcall(debug.getinfo, fn, "S");
@@ -373,7 +383,8 @@ function AntiTamper:apply(ast, pipeline)
             end
         end
 
-        if _g_env and (_g_env["\095\099\097\112\116\117\114\101\100\095\112\114\105\110\116\115"] or _g_env["\095\099\097\112\116\117\114\101\100\095\108\111\097\100\115\116\114\105\110\103\115"]) then
+        -- Dumper / Decompiler Artifacts Detection
+        if _g_env and (_g_env["\095\099\097\112\116\117\114\101\100\095\112\114\105\110\116\115"] or _g_env["\095\099\097\112\116\117\114\101\100\095\108\111\097\100\115\116\114\105\110\103\115"] or _g_env["\095\095\100\101\111\098\102\117\115\099\097\116\111\114"]) then
             valid = false;
         end
         if _g_env and getmetatable(_g_env) ~= nil then
@@ -381,6 +392,23 @@ function AntiTamper:apply(ast, pipeline)
         end
         if getrawmetatable and _g_env and getrawmetatable(_g_env) ~= nil then
             valid = false;
+        end
+
+        -- Check core functions for tampering or proxy hooks
+        local _core_builtins = {
+            { _f_pcall, "pcall" },
+            { _f_type, "type" },
+            { _f_setmt, "setmetatable" },
+            { _f_sbyte, "string.byte" },
+            { _f_tconcat, "table.concat" },
+            { _f_rawget, "rawget" },
+            { _f_rawset, "rawset" },
+        };
+        for _b = 1, #_core_builtins do
+            local _fn_entry = _core_builtins[_b];
+            if _chk_hook(_fn_entry[1], _fn_entry[2]) then
+                valid = false;
+            end
         end
 
         if _g_env[_k_prn] and _chk_hook(_g_env[_k_prn], _k_prn) then valid = false; end

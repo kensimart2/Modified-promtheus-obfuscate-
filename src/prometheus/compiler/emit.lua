@@ -206,9 +206,9 @@ return function(Compiler)
                 table.insert(blockstats, stat.statement);
             end
 
-            if #blockstats > 1 and math.random() < 0.25 then
+            if #blockstats > 1 and math.random() < 0.18 then
                 local k = math.random(100, 999);
-                local invVariant = math.random(1, 6);
+                local invVariant = math.random(1, 10);
                 local deadCond;
 
                 if invVariant == 1 then
@@ -260,7 +260,7 @@ return function(Compiler)
                         ),
                         Ast.NumberExpression(1)
                     );
-                else
+                elseif invVariant == 6 then
                     -- (k^4) % 16 for odd k is always 1, so != 1 is never true
                     local oddK = k * 2 + 1;
                     deadCond = Ast.NotEqualsExpression(
@@ -273,18 +273,98 @@ return function(Compiler)
                         ),
                         Ast.NumberExpression(1)
                     );
+                elseif invVariant == 7 then
+                    -- (k * (k^2 - 1)) % 3 ~= 0 (always divisible by 3)
+                    deadCond = Ast.NotEqualsExpression(
+                        Ast.ModExpression(
+                            Ast.MulExpression(
+                                Ast.NumberExpression(k),
+                                Ast.SubExpression(Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(k)), Ast.NumberExpression(1))
+                            ),
+                            Ast.NumberExpression(3)
+                        ),
+                        Ast.NumberExpression(0)
+                    );
+                elseif invVariant == 8 then
+                    -- (k^5 - k) % 5 ~= 0 (Fermat's little theorem: a^5 - a is always a multiple of 5)
+                    local kSq = k * k;
+                    local k4 = kSq * kSq;
+                    deadCond = Ast.NotEqualsExpression(
+                        Ast.ModExpression(
+                            Ast.SubExpression(Ast.MulExpression(Ast.NumberExpression(k4), Ast.NumberExpression(k)), Ast.NumberExpression(k)),
+                            Ast.NumberExpression(5)
+                        ),
+                        Ast.NumberExpression(0)
+                    );
+                elseif invVariant == 9 then
+                    -- (k * k) % 3 == 2 (quadratic residue mod 3 is only 0 or 1, never 2)
+                    deadCond = Ast.EqualsExpression(
+                        Ast.ModExpression(
+                            Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(k)),
+                            Ast.NumberExpression(3)
+                        ),
+                        Ast.NumberExpression(2)
+                    );
+                else
+                    -- (oddK * (oddK^2 - 1)) % 24 ~= 0 (product of odd number and predecessor/successor is always divisible by 24)
+                    local oddK = k * 2 + 1;
+                    deadCond = Ast.NotEqualsExpression(
+                        Ast.ModExpression(
+                            Ast.MulExpression(
+                                Ast.NumberExpression(oddK),
+                                Ast.SubExpression(Ast.MulExpression(Ast.NumberExpression(oddK), Ast.NumberExpression(oddK)), Ast.NumberExpression(1))
+                            ),
+                            Ast.NumberExpression(24)
+                        ),
+                        Ast.NumberExpression(0)
+                    );
                 end
 
                 local bogusScope = Scope:new(block.scope);
                 bogusScope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
-                local bogusPosAssign = Ast.AssignmentStatement({
-                    Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
-                }, {
-                    Ast.NumberExpression(math.random(1, 2^24))
-                });
+                local ghostStatements = {};
+                local ghostVariant = math.random(1, 4);
+                if ghostVariant == 1 then
+                    table.insert(ghostStatements, Ast.AssignmentStatement({
+                        Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
+                    }, {
+                        Ast.ModExpression(
+                            Ast.AddExpression(
+                                Ast.MulExpression(Ast.VariableExpression(self.containerFuncScope, self.posVar), Ast.NumberExpression(31)),
+                                Ast.NumberExpression(k * 17 + 1024)
+                            ),
+                            Ast.NumberExpression(16777216)
+                        )
+                    }));
+                elseif ghostVariant == 2 then
+                    table.insert(ghostStatements, Ast.AssignmentStatement({
+                        Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
+                    }, {
+                        Ast.AddExpression(
+                            Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(137)),
+                            Ast.NumberExpression(math.random(1000, 9999))
+                        )
+                    }));
+                elseif ghostVariant == 3 then
+                    table.insert(ghostStatements, Ast.AssignmentStatement({
+                        Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
+                    }, {
+                        Ast.NumberExpression(math.random(1, 2^24))
+                    }));
+                else
+                    table.insert(ghostStatements, Ast.AssignmentStatement({
+                        Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
+                    }, {
+                        Ast.SubExpression(
+                            Ast.MulExpression(Ast.VariableExpression(self.containerFuncScope, self.posVar), Ast.NumberExpression(2)),
+                            Ast.NumberExpression(k * 3)
+                        )
+                    }));
+                end
+
                 local deadIf = Ast.IfStatement(
                     deadCond,
-                    Ast.Block({ bogusPosAssign }, bogusScope),
+                    Ast.Block(ghostStatements, bogusScope),
                     {},
                     nil
                 );
@@ -295,6 +375,42 @@ return function(Compiler)
             local block = { id = id, index = i, block = Ast.Block(blockstats, block.scope) }
             table.insert(blocks, block);
             blocks[id] = block;
+        end
+
+        -- Inject phantom decoy blocks to massively complicate VM control flow graph
+        local numDecoys = math.random(2, 4);
+        for d = 1, numDecoys do
+            local decoyId;
+            repeat
+                decoyId = math.random(1, 2^24);
+            until not self.usedBlockIds[decoyId];
+            self.usedBlockIds[decoyId] = true;
+
+            local decoyScope = Scope:new(self.containerFuncScope);
+            decoyScope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
+
+            local k = math.random(10, 999);
+            local decoyStats = {
+                Ast.AssignmentStatement({
+                    Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
+                }, {
+                    Ast.ModExpression(
+                        Ast.AddExpression(
+                            Ast.MulExpression(Ast.VariableExpression(self.containerFuncScope, self.posVar), Ast.NumberExpression(37)),
+                            Ast.NumberExpression(k * 19 + 71)
+                        ),
+                        Ast.NumberExpression(16777216)
+                    )
+                })
+            };
+
+            local decoyBlockObj = {
+                id = decoyId,
+                index = #self.blocks + d,
+                block = Ast.Block(decoyStats, decoyScope)
+            };
+            table.insert(blocks, decoyBlockObj);
+            blocks[decoyId] = decoyBlockObj;
         end
 
         table.sort(blocks, function(a, b) return a.id < b.id end);

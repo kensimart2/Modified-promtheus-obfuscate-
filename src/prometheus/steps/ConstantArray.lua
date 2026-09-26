@@ -18,6 +18,24 @@ local enums = require("prometheus.enums")
 local LuaVersion = enums.LuaVersion;
 local AstKind = Ast.AstKind;
 
+local cipherPairs = {
+	{ mult = 3, inv = 171 },
+	{ mult = 5, inv = 205 },
+	{ mult = 7, inv = 183 },
+	{ mult = 9, inv = 57 },
+	{ mult = 11, inv = 163 },
+	{ mult = 13, inv = 197 },
+	{ mult = 15, inv = 239 },
+	{ mult = 17, inv = 241 },
+	{ mult = 19, inv = 27 },
+	{ mult = 21, inv = 61 },
+	{ mult = 23, inv = 167 },
+	{ mult = 25, inv = 41 },
+	{ mult = 27, inv = 19 },
+	{ mult = 29, inv = 53 },
+	{ mult = 31, inv = 223 },
+};
+
 local ConstantArray = Step:extend();
 ConstantArray.Description = "This Step will Extract all Constants and put them into an Array at the beginning of the script";
 ConstantArray.Name = "Constant Array";
@@ -486,16 +504,22 @@ local DECODE = (function()
 			index = index + 1
 		end
 		local raw = concat(parts);
+		for j = 1, #parts do parts[j] = nil end
 		local rlen = len(raw);
 		local dec = {};
 		local prev = cseed % 256;
+		local cinv = CIPHER_INV;
+		local cshift = CIPHER_SHIFT;
 		for j = 1, rlen do
 			local b = sbyte(raw, j);
+			local diff = ((b - cshift) * cinv) % 256;
 			local k = (cseed + j * cstep + j * (j + 1) * cquad) % 256;
-			dec[j] = cm[((b - k - prev) % 256) + 1];
+			dec[j] = cm[((diff - k - prev) % 256) + 1];
 			prev = b;
 		end
-		return concat(dec);
+		local res = concat(dec);
+		for j = 1, #dec do dec[j] = nil end
+		return res;
 	end
 end)();
 ]=];
@@ -504,7 +528,7 @@ end)();
 			LuaVersion = LuaVersion.Lua51;
 		});
 
-		local code = string.gsub(string.gsub(string.gsub(string.gsub(base64DecodeCode, "CHAR_TABLE_DEF", function() return charTableDef end), "CIPHER_SEED", obscureNumStr(self.cipherSeed)), "CIPHER_STEP", obscureNumStr(self.cipherStep)), "CIPHER_QUAD", obscureNumStr(self.cipherQuad));
+		local code = string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(base64DecodeCode, "CHAR_TABLE_DEF", function() return charTableDef end), "CIPHER_SEED", obscureNumStr(self.cipherSeed)), "CIPHER_STEP", obscureNumStr(self.cipherStep)), "CIPHER_QUAD", obscureNumStr(self.cipherQuad)), "CIPHER_INV", obscureNumStr(self.cipherInv)), "CIPHER_SHIFT", obscureNumStr(self.cipherShift));
 		local newAst = parser:parse(code);
 		newAst.body.scope:setParent(self.rootScope);
 		local stat = newAst.body.statements[1];
@@ -621,16 +645,22 @@ local DECODE = (function()
 			index = index + count
 		end
 		local raw = concat(parts);
+		for j = 1, #parts do parts[j] = nil end
 		local rlen = len(raw);
 		local dec = {};
 		local prev = cseed % 256;
+		local cinv = CIPHER_INV;
+		local cshift = CIPHER_SHIFT;
 		for j = 1, rlen do
 			local b = sbyte(raw, j);
+			local diff = ((b - cshift) * cinv) % 256;
 			local k = (cseed + j * cstep + j * (j + 1) * cquad) % 256;
-			dec[j] = cm[((b - k - prev) % 256) + 1];
+			dec[j] = cm[((diff - k - prev) % 256) + 1];
 			prev = b;
 		end
-		return concat(dec);
+		local res = concat(dec);
+		for j = 1, #dec do dec[j] = nil end
+		return res;
 	end
 end)();
 ]=];
@@ -639,7 +669,7 @@ end)();
 			LuaVersion = LuaVersion.Lua51;
 		});
 
-		local code = string.gsub(string.gsub(string.gsub(string.gsub(base85DecodeCode, "CHAR_TABLE_DEF", function() return charTableDef end), "CIPHER_SEED", obscureNumStr(self.cipherSeed)), "CIPHER_STEP", obscureNumStr(self.cipherStep)), "CIPHER_QUAD", obscureNumStr(self.cipherQuad));
+		local code = string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(base85DecodeCode, "CHAR_TABLE_DEF", function() return charTableDef end), "CIPHER_SEED", obscureNumStr(self.cipherSeed)), "CIPHER_STEP", obscureNumStr(self.cipherStep)), "CIPHER_QUAD", obscureNumStr(self.cipherQuad)), "CIPHER_INV", obscureNumStr(self.cipherInv)), "CIPHER_SHIFT", obscureNumStr(self.cipherShift));
 		local newAst = parser:parse(code);
 		newAst.body.scope:setParent(self.rootScope);
 		local stat = newAst.body.statements[1];
@@ -751,16 +781,22 @@ local DECODE = (function()
 				index = index + 1
 			end
 			local raw = concat(parts);
+			for j = 1, #parts do parts[j] = nil end
 			local rlen = len(raw);
 			local dec = {};
 			local prev = cseed % 256;
+			local cinv = CIPHER_INV;
+			local cshift = CIPHER_SHIFT;
 			for j = 1, rlen do
 				local b = sbyte(raw, j);
+				local diff = ((b - cshift) * cinv) % 256;
 				local k = (cseed + j * cstep + j * (j + 1) * cquad) % 256;
-				dec[j] = cm[((b - k - prev) % 256) + 1];
+				dec[j] = cm[((diff - k - prev) % 256) + 1];
 				prev = b;
 			end
-			return concat(dec);
+			local res = concat(dec);
+			for j = 1, #dec do dec[j] = nil end
+			return res;
 		elseif first == p1 then
 			data = sub(data, 2)
 			local length = len(data)
@@ -806,16 +842,22 @@ local DECODE = (function()
 				idx = idx + count
 			end
 			local raw = concat(parts);
+			for j = 1, #parts do parts[j] = nil end
 			local rlen = len(raw);
 			local dec = {};
 			local prev = cseed % 256;
+			local cinv = CIPHER_INV;
+			local cshift = CIPHER_SHIFT;
 			for j = 1, rlen do
 				local b = sbyte(raw, j);
+				local diff = ((b - cshift) * cinv) % 256;
 				local k = (cseed + j * cstep + j * (j + 1) * cquad) % 256;
-				dec[j] = cm[((b - k - prev) % 256) + 1];
+				dec[j] = cm[((diff - k - prev) % 256) + 1];
 				prev = b;
 			end
-			return concat(dec);
+			local res = concat(dec);
+			for j = 1, #dec do dec[j] = nil end
+			return res;
 		end
 		return data;
 	end
@@ -826,7 +868,7 @@ end)();
 			LuaVersion = LuaVersion.Lua51;
 		});
 
-		local code = string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(mixedDecodeCode, "CHAR_TABLE_DEF", function() return charTableDef end), "P0_ESC", "\"" .. p0_esc .. "\""), "P1_ESC", "\"" .. p1_esc .. "\""), "CIPHER_SEED", obscureNumStr(self.cipherSeed)), "CIPHER_STEP", obscureNumStr(self.cipherStep)), "CIPHER_QUAD", obscureNumStr(self.cipherQuad));
+		local code = string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(string.gsub(mixedDecodeCode, "CHAR_TABLE_DEF", function() return charTableDef end), "P0_ESC", "\"" .. p0_esc .. "\""), "P1_ESC", "\"" .. p1_esc .. "\""), "CIPHER_SEED", obscureNumStr(self.cipherSeed)), "CIPHER_STEP", obscureNumStr(self.cipherStep)), "CIPHER_QUAD", obscureNumStr(self.cipherQuad)), "CIPHER_INV", obscureNumStr(self.cipherInv)), "CIPHER_SHIFT", obscureNumStr(self.cipherShift));
 		local newAst = parser:parse(code);
 		newAst.body.scope:setParent(self.rootScope);
 		local stat = newAst.body.statements[1];
@@ -1028,7 +1070,8 @@ function ConstantArray:cipherEncrypt(str)
 	for j = 1, slen do
 		local b = string.byte(str, j);
 		local k = (self.cipherSeed + j * self.cipherStep + j * (j + 1) * self.cipherQuad) % 256;
-		local enc = (b + k + prev) % 256;
+		local diff = (b + k + prev) % 256;
+		local enc = (diff * self.cipherMult + self.cipherShift) % 256;
 		res[j] = string.char(enc);
 		prev = enc;
 	end
@@ -1123,6 +1166,10 @@ end
 
 function ConstantArray:apply(ast, pipeline)
 	initPrefixes();
+	local pair = cipherPairs[math.random(1, #cipherPairs)];
+	self.cipherMult = pair.mult;
+	self.cipherInv = pair.inv;
+	self.cipherShift = math.random(11, 241);
 	self.cipherSeed = math.random(13, 241);
 	self.cipherStep = math.random(5, 27) * 2 + 1;
 	self.cipherQuad = math.random(1, 15) * 2 + 1;

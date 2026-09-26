@@ -65,6 +65,15 @@ return {
 					NumberRepresentationMutation = true,
 				},
 			},
+			{
+				Name = "SplitStrings",
+				Settings = {
+					Threshold = 1,
+					MinLength = 3,
+					MaxLength = 6,
+					ConcatenationType = "strcat",
+				},
+			},
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "AntiTamper",
@@ -102,8 +111,17 @@ return {
 			{
 				Name = "NumbersToExpressions",
 				Settings = {
-					Threshold = 1,
+					Threshold = 0.4,
 					NumberRepresentationMutation = true,
+				},
+			},
+			{
+				Name = "SplitStrings",
+				Settings = {
+					Threshold = 0.4,
+					MinLength = 6,
+					MaxLength = 14,
+					ConcatenationType = "strcat",
 				},
 			},
 			{ Name = "EncryptStrings", Settings = {} },
@@ -123,8 +141,8 @@ return {
 					Shuffle = true,
 					Rotate = true,
 					Encoding = "mixed",
-					LocalWrapperThreshold = 0.8,
-					LocalWrapperCount = 3,
+					LocalWrapperThreshold = 0.7,
+					LocalWrapperCount = 1,
 					LocalWrapperArgCount = 4,
 					MaxWrapperOffset = 256,
 				},

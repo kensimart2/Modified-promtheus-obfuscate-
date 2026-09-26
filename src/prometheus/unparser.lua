@@ -85,25 +85,35 @@ function Unparser:newline(ws_needed)
 end
 
 function Unparser:whitespaceIfNeeded(following, ws)
-	if(self.prettyPrint or self.identCharsLookup[string.sub(following, 1, 1)]) then
-		return ws or self.SPACE;
+	if not following then return (ws and ws ~= "" and ws) or self.SPACE or " " end
+	local char = string.sub(following, 1, 1)
+	if(self.prettyPrint or (char ~= "" and self.identCharsLookup[char])) then
+		if ws and ws ~= "" then
+			return ws
+		end
+		return self.SPACE or " "
 	end
 	return "";
 end
 
 function Unparser:whitespaceIfNeeded2(leading, ws)
-	if(self.prettyPrint or self.identCharsLookup[string.sub(leading, #leading, #leading)]) then
-		return ws or self.SPACE;
+	if not leading then return (ws and ws ~= "" and ws) or self.SPACE or " " end
+	local char = string.sub(leading, #leading, #leading)
+	if(self.prettyPrint or (char ~= "" and self.identCharsLookup[char])) then
+		if ws and ws ~= "" then
+			return ws
+		end
+		return self.SPACE or " "
 	end
 	return "";
 end
 
 function Unparser:optionalWhitespace(ws)
-	return self.prettyPrint and (ws or self.SPACE) or "";
+	return self.prettyPrint and (ws or self.SPACE or " ") or "";
 end
 
 function Unparser:whitespace(ws)
-	return self.SPACE or ws;
+	return self.SPACE or ws or " ";
 end
 
 local function getPrimaryBlock(ast)
@@ -443,6 +453,9 @@ function Unparser:unparseStatement(statement, tabbing)
 end
 
 function Unparser:unparseExpression(expression, tabbing)
+	if not expression then
+		return "nil"
+	end
 	if expression.isParenthesizedExpression then
 		local unwrapped = {}
 		for k, v in pairs(expression) do
@@ -478,11 +491,12 @@ function Unparser:unparseExpression(expression, tabbing)
 	end
 
 	if(expression.kind == AstKind.VariableExpression or expression.kind == AstKind.AssignmentVariable) then
-		return expression.scope:getVariableName(expression.id);
+		local name = expression.scope and expression.scope:getVariableName(expression.id);
+		return name or ("_v_" .. tostring(expression.id or 0));
 	end
 
 	if(expression.kind == AstKind.StringExpression) then
-		return "\"" .. escapeString(expression.value) .. "\"";
+		return "\"" .. escapeString(expression.value or "") .. "\"";
 	end
 
 	if(expression.kind == AstKind.NilExpression) then
@@ -495,20 +509,20 @@ function Unparser:unparseExpression(expression, tabbing)
 
 	local k = AstKind.OrExpression;
 	if(expression.kind == k) then
-		local lhs = self:unparseExpression(expression.lhs, tabbing);
-		local rhs = self:unparseExpression(expression.rhs, tabbing);
+		local lhs = self:unparseExpression(expression.lhs, tabbing) or "nil";
+		local rhs = self:unparseExpression(expression.rhs, tabbing) or "nil";
 		return lhs .. self:whitespaceIfNeeded2(lhs) .. "or" .. self:whitespaceIfNeeded(rhs) .. rhs;
 	end
 
 	k = AstKind.AndExpression;
 	if(expression.kind == k) then
-		local lhs = self:unparseExpression(expression.lhs, tabbing);
-		if(Ast.astKindExpressionToNumber(expression.lhs.kind) >= Ast.astKindExpressionToNumber(k)) then
+		local lhs = self:unparseExpression(expression.lhs, tabbing) or "nil";
+		if(expression.lhs and expression.lhs.kind and Ast.astKindExpressionToNumber(expression.lhs.kind) >= Ast.astKindExpressionToNumber(k)) then
 			lhs = "(" .. lhs .. ")";
 		end
 
-		local rhs = self:unparseExpression(expression.rhs, tabbing);
-		if(Ast.astKindExpressionToNumber(expression.rhs.kind) >= Ast.astKindExpressionToNumber(k)) then
+		local rhs = self:unparseExpression(expression.rhs, tabbing) or "nil";
+		if(expression.rhs and expression.rhs.kind and Ast.astKindExpressionToNumber(expression.rhs.kind) >= Ast.astKindExpressionToNumber(k)) then
 			rhs = "(" .. rhs .. ")";
 		end
 
@@ -686,7 +700,8 @@ function Unparser:unparseExpression(expression, tabbing)
 			if(arg.kind == AstKind.VarargExpression) then
 				push("...");
 			else
-				push(arg.scope:getVariableName(arg.id));
+				local name = arg.scope and arg.scope:getVariableName(arg.id);
+				push(name or ("_arg_" .. tostring(arg.id or 0)));
 			end
 		end
 		push(")");

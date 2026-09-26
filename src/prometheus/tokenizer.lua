@@ -358,7 +358,7 @@ function Tokenizer:ident()
 
 	local tk = token(self, startPos, Tokenizer.TokenKind.Ident, source);
 
-	if(string.sub(source, 1, string.len(config.IdentPrefix)) == config.IdentPrefix) then
+	if(config and config.IdentPrefix and type(config.IdentPrefix) == "string" and string.sub(source, 1, string.len(config.IdentPrefix)) == config.IdentPrefix) then
 		logger:warn(generateWarning(tk, string.format("identifiers should not start with \"%s\" as this may break the program", config.IdentPrefix)));
 	end
 

@@ -5,8 +5,19 @@
 -- This Script provides a Logger for Prometheus.
 
 local logger = {}
-local config = require("config");
-local colors = require("colors");
+local hasConfig, config = pcall(require, "config");
+if not hasConfig or type(config) ~= "table" then
+	config = {
+		Name = "Prometheus",
+		NameUpper = "PROMETHEUS",
+		Version = "2.1.0"
+	}
+end
+
+local hasColors, colors = pcall(require, "colors");
+if not hasColors or type(colors) ~= "function" then
+	colors = function(str) return str end
+end
 
 logger.LogLevel = {
 	Error = 0,
