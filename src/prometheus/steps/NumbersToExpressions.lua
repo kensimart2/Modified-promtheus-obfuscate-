@@ -198,6 +198,32 @@ function NumbersToExpressions:init(_)
 				false
 			)
 		end,
+
+		function(val, depth) -- Linear Scaling Identity
+			if val ~= math.floor(val) then return false end
+			local scale = math.random(3, 11)
+			local scaled = val * scale
+			if scaled / scale ~= val then return false end
+			return Ast.DivExpression(
+				self:CreateNumberExpression(scaled, depth),
+				self:CreateNumberExpression(scale, depth),
+				false
+			)
+		end,
+
+		function(val, depth) -- Offset Balancing
+			if val ~= math.floor(val) then return false end
+			local offset = math.random(0x10, 0xfff)
+			return Ast.SubExpression(
+				Ast.AddExpression(
+					self:CreateNumberExpression(val, depth),
+					self:CreateNumberExpression(offset, depth),
+					false
+				),
+				self:CreateNumberExpression(offset, depth),
+				false
+			)
+		end,
 	}
 end
 

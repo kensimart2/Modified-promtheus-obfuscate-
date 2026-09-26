@@ -564,6 +564,91 @@ describe("runPrometheus", () => {
     }
   }, 30000)
 
+  it("detects getgc below 800 and aborts execution in sandbox", async () => {
+    const code = `
+      local function secret()
+        return "SUCCESSFUL_EXECUTION"
+      end
+      return secret()
+    `
+    const result = await runPrometheus({
+      source: code,
+      filename: "test_getgc.lua",
+      preset: "Strong",
+      luaVersion: "LuaU",
+      prettyPrint: false,
+      seed: 88811,
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const { LuaFactory } = await import("wasmoon")
+    const factory = new LuaFactory()
+    const engine = await factory.createEngine()
+    try {
+      // Sandbox with shallow getgc (#getgc < 800)
+      await engine.doString(`
+        unpack = table.unpack or unpack
+        table.freeze = function(t) return t end
+        getgc = function()
+          return {1, 2, 3, 4, 5}
+        end
+      `)
+      let err = null
+      try {
+        await engine.doString(result.output)
+      } catch (e) {
+        err = e
+      }
+      expect(err).not.toBeNull()
+    } finally {
+      engine.global.close()
+    }
+  }, 30000)
+
+  it("detects low/spoofed memory address and aborts execution", async () => {
+    const code = `
+      return "VALID_RUN"
+    `
+    const result = await runPrometheus({
+      source: code,
+      filename: "test_low_mem.lua",
+      preset: "Strong",
+      luaVersion: "LuaU",
+      prettyPrint: false,
+      seed: 55443,
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const { LuaFactory } = await import("wasmoon")
+    const factory = new LuaFactory()
+    const engine = await factory.createEngine()
+    try {
+      // Hook tostring to return low memory addresses (e.g. 0x100)
+      await engine.doString(`
+        unpack = table.unpack or unpack
+        table.freeze = function(t) return t end
+        local old_tostring = tostring
+        tostring = function(v)
+          if type(v) == "table" then
+            return "table: 0x100"
+          end
+          return old_tostring(v)
+        end
+      `)
+      let err = null
+      try {
+        await engine.doString(result.output)
+      } catch (e) {
+        err = e
+      }
+      expect(err).not.toBeNull()
+    } finally {
+      engine.global.close()
+    }
+  }, 30000)
+
   it("reproduces and verifies running Strong preset output in runLuaScript", async () => {
     const result = await runPrometheus({
       source: 'print("Hello from Strong!")',

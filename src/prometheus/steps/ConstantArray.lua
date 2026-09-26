@@ -1223,7 +1223,7 @@ function ConstantArray:apply(ast, pipeline)
 		string.format("idx_%x_st", math.random(0x1000, 0xffff)),
 		string.format("r_%d_k", math.random(100, 999)),
 	}
-	for i = 1, math.random(16, 26) do
+	for i = 1, math.random(2, 4) do
 		local dummyVal = decoys[math.random(#decoys)] .. (math.random() > 0.5 and ("_" .. string.format("%x", math.random(0x10, 0xff))) or "")
 		self:addConstant(dummyVal);
 	end

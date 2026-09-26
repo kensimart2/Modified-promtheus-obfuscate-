@@ -24,7 +24,7 @@ AntiTamper.SettingsDescriptor = {
 
 local function generateSanityCheck()
 	local sanityCheckAnswers = {}
-	local sanityPasses = math.random(1, 10)
+	local sanityPasses = math.random(2, 4)
 	for i = 1, sanityPasses do
 		sanityCheckAnswers[i] = (math.random(1, 2 ^ 24) % 2 == 1)
 	end
@@ -298,11 +298,24 @@ function AntiTamper:apply(ast, pipeline)
         for _j = 1, #_sample do
             _hash_acc = (_hash_acc * 31 + _f_sbyte(_sample, _j) + _seed_val) % 65536;
         end
-        local _expected_acc = 137;
-        for _j = 1, #_sample do
-            _expected_acc = (_expected_acc * 31 + _f_sbyte(_sample, _j) + _seed_val) % 65536;
+        if _hash_acc < 0 or _hash_acc >= 65536 then
+            valid = false;
         end
-        if _hash_acc ~= _expected_acc then
+
+        -- Memory Address & Allocation Integrity
+        local _chk_ptr = function(_o)
+            local _s = tostring(_o);
+            local _h = _s:match("0x([%da-fA-F]+)") or _s:match(": ([%da-fA-F]+)");
+            if _h then
+                if #_h <= 3 then return true; end
+                local _v = tonumber(_h:sub(-8), 16);
+                if _v and _v < 4096 then return true; end
+            end
+            return false;
+        end;
+        local _t1, _t2, _t3 = {}, {}, {};
+        local _s1, _s2, _s3 = tostring(_t1), tostring(_t2), tostring(_t3);
+        if _s1 == _s2 or _s2 == _s3 or _s1 == _s3 or _chk_ptr(_t1) or _chk_ptr(function() end) then
             valid = false;
         end
 
@@ -311,14 +324,12 @@ function AntiTamper:apply(ast, pipeline)
         local _k_prn = "\112\114\105\110\116";
         local _k_wrn = "\119\097\114\110";
         local _k_lds = "\108\111\097\100\115\116\114\105\110\103";
+        local _k_getgc = "\103\101\116\103\099";
         local _is_internal_runner = (_G and _G.__prometheusPushLog ~= nil) or (_g_env and _g_env.__prometheusPushLog ~= nil);
 
         local _chk_hook = function(fn, name)
             if not fn or _f_type(fn) ~= _k_fn then return false; end
-            -- In verified browser runner, print and warn are legitimately wrapped for web UI logging
-            if _is_internal_runner and (name == _k_prn or name == _k_wrn) then
-                return false;
-            end
+            if _is_internal_runner and (name == _k_prn or name == _k_wrn) then return false; end
             if debug and debug.info then
                 local _ok_s, _src = _f_pcall(debug.info, fn, "s");
                 if _ok_s and _src and _src ~= "[C]" then return true; end
@@ -329,9 +340,7 @@ function AntiTamper:apply(ast, pipeline)
                 local _ok_i, _inf = _f_pcall(debug.getinfo, fn, "S");
                 if _ok_i and _inf and _inf.what and _inf.what ~= "C" then return true; end
             end
-            if string and string.dump and _f_pcall(string.dump, fn) then
-                return true;
-            end
+            if string and string.dump and _f_pcall(string.dump, fn) then return true; end
             if debug and debug.getupvalue then
                 local _ok_u, _u1 = _f_pcall(debug.getupvalue, fn, 1);
                 if _ok_u and _u1 ~= nil then return true; end
@@ -351,6 +360,18 @@ function AntiTamper:apply(ast, pipeline)
             end
             return false;
         end;
+
+        -- Garbage Collector Object Count Check (#getgc < 800 -> Sandbox / Deobfuscator Detection)
+        local _fn_getgc = getgc or (_g_env and _g_env[_k_getgc]);
+        if _fn_getgc and _f_type(_fn_getgc) == _k_fn then
+            local _ok_gc, _gc_arr = _f_pcall(_fn_getgc, true);
+            if not _ok_gc or _f_type(_gc_arr) ~= _k_tbl then
+                _ok_gc, _gc_arr = _f_pcall(_fn_getgc);
+            end
+            if _ok_gc and _f_type(_gc_arr) == _k_tbl and #_gc_arr < 800 then
+                valid = false;
+            end
+        end
 
         if _g_env and (_g_env["\095\099\097\112\116\117\114\101\100\095\112\114\105\110\116\115"] or _g_env["\095\099\097\112\116\117\114\101\100\095\108\111\097\100\115\116\114\105\110\103\115"]) then
             valid = false;

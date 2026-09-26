@@ -206,9 +206,9 @@ return function(Compiler)
                 table.insert(blockstats, stat.statement);
             end
 
-            if #blockstats > 1 and math.random() < 0.4 then
+            if #blockstats > 1 and math.random() < 0.25 then
                 local k = math.random(100, 999);
-                local invVariant = math.random(1, 5);
+                local invVariant = math.random(1, 6);
                 local deadCond;
 
                 if invVariant == 1 then
@@ -250,13 +250,26 @@ return function(Compiler)
                         ),
                         Ast.NumberExpression(0)
                     );
-                else
+                elseif invVariant == 5 then
                     -- Odd integer square mod 8 is always 1, so != 1 is never true
                     local oddK = k * 2 + 1;
                     deadCond = Ast.NotEqualsExpression(
                         Ast.ModExpression(
                             Ast.MulExpression(Ast.NumberExpression(oddK), Ast.NumberExpression(oddK)),
                             Ast.NumberExpression(8)
+                        ),
+                        Ast.NumberExpression(1)
+                    );
+                else
+                    -- (k^4) % 16 for odd k is always 1, so != 1 is never true
+                    local oddK = k * 2 + 1;
+                    deadCond = Ast.NotEqualsExpression(
+                        Ast.ModExpression(
+                            Ast.MulExpression(
+                                Ast.MulExpression(Ast.NumberExpression(oddK), Ast.NumberExpression(oddK)),
+                                Ast.MulExpression(Ast.NumberExpression(oddK), Ast.NumberExpression(oddK))
+                            ),
+                            Ast.NumberExpression(16)
                         ),
                         Ast.NumberExpression(1)
                     );
