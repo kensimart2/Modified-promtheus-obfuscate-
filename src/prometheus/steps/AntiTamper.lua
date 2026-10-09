@@ -310,7 +310,6 @@ function AntiTamper:apply(ast, pipeline)
             valid = false;
         end
 
-        -- Memory Address & Allocation Integrity
         local _chk_ptr = function(_o)
             local _s = tostring(_o);
             local _h = _s:match("0x([%da-fA-F]+)") or _s:match(": ([%da-fA-F]+)");
@@ -327,7 +326,6 @@ function AntiTamper:apply(ast, pipeline)
             valid = false;
         end
 
-        -- Anti-Hooking & Environment Integrity Verification
         local _g_env = _G or (getgenv and getgenv()) or (getfenv and getfenv(0)) or {};
         local _k_prn = "\112\114\105\110\116";
         local _k_wrn = "\119\097\114\110";
@@ -371,7 +369,6 @@ function AntiTamper:apply(ast, pipeline)
             return false;
         end;
 
-        -- Garbage Collector Object Count Check (#getgc < 800 -> Sandbox / Deobfuscator Detection)
         local _fn_getgc = getgc or (_g_env and _g_env[_k_getgc]);
         if _fn_getgc and _f_type(_fn_getgc) == _k_fn then
             local _ok_gc, _gc_arr = _f_pcall(_fn_getgc, true);
@@ -383,8 +380,7 @@ function AntiTamper:apply(ast, pipeline)
             end
         end
 
-        -- Dumper / Decompiler Artifacts Detection
-        if _g_env and (_g_env["\095\099\097\112\116\117\114\101\100\095\112\114\105\110\116\115"] or _g_env["\095\099\097\112\116\117\114\101\100\095\108\111\097\100\115\116\114\105\110\103\115"] or _g_env["\095\095\100\101\111\098\102\117\115\099\097\116\111\114"]) then
+        if _g_env and (_g_env["\095\099\097\112\116\117\114\101\100\095\112\114\105\110\116\115"] or _g_env["\095\099\097\112\116\117\114\101\100\095\108\111\097\100\115\116\114\105\110\103\115"] or _g_env["\095\095\100\101\111\098\102\117\115\099\097\116\111\114"] or _g_env["\095\095\097\115\116\114\097\095\116\114\097\099\101"] or _g_env["\095\095\097\115\116\114\097\095\101\110\118"] or _g_env["\095\095\097\115\116\114\097\095\100\117\109\112"] or _g_env["\095\095\097\115\116\114\097\095\104\111\111\107"] or _g_env["\095\095\097\105\095\115\097\110\100\098\111\120"] or _g_env["\095\095\100\101\099\111\109\112\105\108\101\114\095\115\116\097\116\101"]) then
             valid = false;
         end
         if _g_env and getmetatable(_g_env) ~= nil then
@@ -394,7 +390,6 @@ function AntiTamper:apply(ast, pipeline)
             valid = false;
         end
 
-        -- Check core functions for tampering or proxy hooks
         local _core_builtins = {
             { _f_pcall, "pcall" },
             { _f_type, "type" },

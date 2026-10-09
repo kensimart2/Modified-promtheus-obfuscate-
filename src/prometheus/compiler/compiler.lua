@@ -306,7 +306,7 @@ function Compiler:compile(ast)
         Ast.AssignmentStatement(assignmentStatLhs, assignmentStatRhs);
         Ast.ReturnStatement{
             Ast.FunctionCallExpression(Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.createVarargClosureVar), {
-                    Ast.NumberExpression(self.startBlockId);
+                    self:obfuscateBlockId(self.startBlockId);
                     Ast.TableConstructorExpression(upvalEntries);
                 }), {Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.unpackVar), {Ast.VariableExpression(self.scope, argVar)})});
         }

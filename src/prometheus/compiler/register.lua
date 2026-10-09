@@ -8,9 +8,62 @@ local Ast = require("prometheus.ast");
 local constants = require("prometheus.compiler.constants");
 local randomStrings = require("prometheus.randomStrings");
 
+local AstKind = Ast.AstKind;
 local MAX_REGS = constants.MAX_REGS;
 
 return function(Compiler)
+    function Compiler:obfuscateBlockId(id)
+        if type(id) ~= "number" then
+            return id;
+        end
+        local variant = math.random(1, 5);
+        if variant == 1 then
+            local k = math.random(1001, 89999);
+            return Ast.SubExpression(
+                Ast.AddExpression(Ast.NumberExpression(id + k), Ast.NumberExpression(k)),
+                Ast.NumberExpression(k * 2)
+            );
+        elseif variant == 2 then
+            local k = math.random(1001, 89999);
+            return Ast.AddExpression(
+                Ast.SubExpression(Ast.NumberExpression(id), Ast.NumberExpression(k)),
+                Ast.NumberExpression(k)
+            );
+        elseif variant == 3 then
+            local mul = math.random(2, 4);
+            local k = math.random(101, 4999) * mul;
+            return Ast.DivExpression(
+                Ast.SubExpression(
+                    Ast.AddExpression(
+                        Ast.MulExpression(Ast.NumberExpression(id), Ast.NumberExpression(mul)),
+                        Ast.NumberExpression(k)
+                    ),
+                    Ast.NumberExpression(k)
+                ),
+                Ast.NumberExpression(mul)
+            );
+        elseif variant == 4 then
+            local d1 = math.random(500, 9999);
+            local d2 = math.random(500, 9999);
+            return Ast.SubExpression(
+                Ast.SubExpression(
+                    Ast.AddExpression(
+                        Ast.AddExpression(Ast.NumberExpression(id), Ast.NumberExpression(d1)),
+                        Ast.NumberExpression(d2)
+                    ),
+                    Ast.NumberExpression(d1)
+                ),
+                Ast.NumberExpression(d2)
+            );
+        else
+            local k = math.random(1001, 89999);
+            return Ast.SubExpression(
+                Ast.AddExpression(Ast.NumberExpression(id), Ast.NumberExpression(k)),
+                Ast.NumberExpression(k)
+            );
+        end
+    end
+
     function Compiler:freeRegister(id, force)
         if force or not (self.registers[id] == self.VAR_REGISTER) then
             self.usedRegisters = self.usedRegisters - 1;
@@ -150,6 +203,22 @@ return function(Compiler)
         if(compundArg) then
             return compundArg(self:registerAssignment(scope, id), val);
         end
+        if id == self.POS_REGISTER and val then
+            local function obfuscateNode(n)
+                if type(n) ~= "table" then return n end
+                if n.kind == AstKind.NumberExpression then
+                    return self:obfuscateBlockId(n.value);
+                elseif n.kind == AstKind.OrExpression then
+                    n.lhs = obfuscateNode(n.lhs);
+                    n.rhs = obfuscateNode(n.rhs);
+                elseif n.kind == AstKind.AndExpression then
+                    n.lhs = obfuscateNode(n.lhs);
+                    n.rhs = obfuscateNode(n.rhs);
+                end
+                return n;
+            end
+            val = obfuscateNode(val);
+        end
         return Ast.AssignmentStatement({
             self:registerAssignment(scope, id)
         }, {
@@ -223,7 +292,15 @@ return function(Compiler)
             return Ast.AssignmentStatement({Ast.AssignmentVariable(self.containerFuncScope, self.posVar)}, {v});
         end
         scope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
-        return Ast.AssignmentStatement({Ast.AssignmentVariable(self.containerFuncScope, self.posVar)}, {Ast.NumberExpression(val) or Ast.NilExpression()});
+        local targetExpr;
+        if type(val) == "number" then
+            targetExpr = self:obfuscateBlockId(val);
+        elseif type(val) == "table" and val.kind == AstKind.NumberExpression then
+            targetExpr = self:obfuscateBlockId(val.value);
+        else
+            targetExpr = val;
+        end
+        return Ast.AssignmentStatement({Ast.AssignmentVariable(self.containerFuncScope, self.posVar)}, {targetExpr});
     end
 
     function Compiler:setReturn(scope, val)

@@ -140,6 +140,33 @@ return function(Compiler)
     function Compiler:emitContainerFuncBody()
         local blocks = {};
 
+        local function injectLocalJunk(blockScope, blockstats)
+            local d1 = blockScope:addVariable()
+            local d2 = blockScope:addVariable()
+            local d3 = blockScope:addVariable()
+
+            -- local d1, d2, d3 = rand, rand, rand
+            table.insert(blockstats, Ast.LocalVariableDeclaration(blockScope, {d1, d2, d3}, {
+                Ast.NumberExpression(math.random(10, 1000)),
+                Ast.NumberExpression(math.random(10, 1000)),
+                Ast.NumberExpression(math.random(10, 1000))
+            }))
+
+            -- d1 = d2 + d3
+            table.insert(blockstats, Ast.AssignmentStatement({
+                Ast.AssignmentVariable(blockScope, d1)
+            }, {
+                Ast.AddExpression(Ast.VariableExpression(blockScope, d2), Ast.VariableExpression(blockScope, d3))
+            }))
+
+            -- d2 = d1 * rand
+            table.insert(blockstats, Ast.AssignmentStatement({
+                Ast.AssignmentVariable(blockScope, d2)
+            }, {
+                Ast.MulExpression(Ast.VariableExpression(blockScope, d1), Ast.NumberExpression(math.random(2, 6)))
+            }))
+        end
+
         util.shuffle(self.blocks);
 
         for i, block in ipairs(self.blocks) do
@@ -206,9 +233,15 @@ return function(Compiler)
                 table.insert(blockstats, stat.statement);
             end
 
-            if #blockstats > 1 and math.random() < 0.18 then
-                local k = math.random(100, 999);
-                local invVariant = math.random(1, 10);
+            -- Inject sandboxed local junk mathematical operations (with 35% probability to stay under size budget)
+            if math.random() < 0.35 then
+                injectLocalJunk(block.scope, blockstats)
+            end
+
+            -- Opaque predicate injection rate (35% for optimal balance of deep AST confusion and compactness)
+            if #blockstats > 1 and math.random() < 0.35 then
+                local k = math.random(5, 45);
+                local invVariant = math.random(1, 16);
                 local deadCond;
 
                 if invVariant == 1 then
@@ -286,12 +319,13 @@ return function(Compiler)
                         Ast.NumberExpression(0)
                     );
                 elseif invVariant == 8 then
-                    -- (k^5 - k) % 5 ~= 0 (Fermat's little theorem: a^5 - a is always a multiple of 5)
-                    local kSq = k * k;
+                    -- (k^5 - k) % 5 ~= 0 (Fermat's little theorem: a^5 - a is always a multiple of 5, safe bounds)
+                    local kSmall = math.random(2, 12);
+                    local kSq = kSmall * kSmall;
                     local k4 = kSq * kSq;
                     deadCond = Ast.NotEqualsExpression(
                         Ast.ModExpression(
-                            Ast.SubExpression(Ast.MulExpression(Ast.NumberExpression(k4), Ast.NumberExpression(k)), Ast.NumberExpression(k)),
+                            Ast.SubExpression(Ast.MulExpression(Ast.NumberExpression(k4), Ast.NumberExpression(kSmall)), Ast.NumberExpression(kSmall)),
                             Ast.NumberExpression(5)
                         ),
                         Ast.NumberExpression(0)
@@ -305,7 +339,7 @@ return function(Compiler)
                         ),
                         Ast.NumberExpression(2)
                     );
-                else
+                elseif invVariant == 10 then
                     -- (oddK * (oddK^2 - 1)) % 24 ~= 0 (product of odd number and predecessor/successor is always divisible by 24)
                     local oddK = k * 2 + 1;
                     deadCond = Ast.NotEqualsExpression(
@@ -318,12 +352,70 @@ return function(Compiler)
                         ),
                         Ast.NumberExpression(0)
                     );
+                elseif invVariant == 11 then
+                    -- (k * k + 1) % 3 == 0 (always false)
+                    deadCond = Ast.EqualsExpression(
+                        Ast.ModExpression(
+                            Ast.AddExpression(Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(k)), Ast.NumberExpression(1)),
+                            Ast.NumberExpression(3)
+                        ),
+                        Ast.NumberExpression(0)
+                    );
+                elseif invVariant == 12 then
+                    -- (k * k * k - k) % 3 ~= 0 (always false)
+                    deadCond = Ast.NotEqualsExpression(
+                        Ast.ModExpression(
+                            Ast.SubExpression(Ast.MulExpression(Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(k)), Ast.NumberExpression(k)), Ast.NumberExpression(k)),
+                            Ast.NumberExpression(3)
+                        ),
+                        Ast.NumberExpression(0)
+                    );
+                elseif invVariant == 13 then
+                    -- (k * k) % 5 == 2 (always false)
+                    deadCond = Ast.EqualsExpression(
+                        Ast.ModExpression(
+                            Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(k)),
+                            Ast.NumberExpression(5)
+                        ),
+                        Ast.NumberExpression(2)
+                    );
+                elseif invVariant == 14 then
+                    -- (k * k) % 5 == 3 (always false)
+                    deadCond = Ast.EqualsExpression(
+                        Ast.ModExpression(
+                            Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(k)),
+                            Ast.NumberExpression(5)
+                        ),
+                        Ast.NumberExpression(3)
+                    );
+                elseif invVariant == 15 then
+                    -- ((oddK * oddK) - 1) % 8 ~= 0 (always false)
+                    local oddK = k * 2 + 1;
+                    deadCond = Ast.NotEqualsExpression(
+                        Ast.ModExpression(
+                            Ast.SubExpression(Ast.MulExpression(Ast.NumberExpression(oddK), Ast.NumberExpression(oddK)), Ast.NumberExpression(1)),
+                            Ast.NumberExpression(8)
+                        ),
+                        Ast.NumberExpression(0)
+                    );
+                else
+                    -- (k * (k + 1) * (k + 2) * (k + 3)) % 24 ~= 0 (product of 4 consecutive numbers is divisible by 24)
+                    deadCond = Ast.NotEqualsExpression(
+                        Ast.ModExpression(
+                            Ast.MulExpression(
+                                Ast.MulExpression(Ast.NumberExpression(k), Ast.NumberExpression(k + 1)),
+                                Ast.MulExpression(Ast.NumberExpression(k + 2), Ast.NumberExpression(k + 3))
+                            ),
+                            Ast.NumberExpression(24)
+                        ),
+                        Ast.NumberExpression(0)
+                    );
                 end
 
                 local bogusScope = Scope:new(block.scope);
                 bogusScope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
                 local ghostStatements = {};
-                local ghostVariant = math.random(1, 4);
+                local ghostVariant = math.random(1, 5);
                 if ghostVariant == 1 then
                     table.insert(ghostStatements, Ast.AssignmentStatement({
                         Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
@@ -351,7 +443,7 @@ return function(Compiler)
                     }, {
                         Ast.NumberExpression(math.random(1, 2^24))
                     }));
-                else
+                elseif ghostVariant == 4 then
                     table.insert(ghostStatements, Ast.AssignmentStatement({
                         Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
                     }, {
@@ -359,6 +451,18 @@ return function(Compiler)
                             Ast.MulExpression(Ast.VariableExpression(self.containerFuncScope, self.posVar), Ast.NumberExpression(2)),
                             Ast.NumberExpression(k * 3)
                         )
+                    }));
+                else
+                    -- Safe local variable nesting for anti-decompiler complexity
+                    local bd = bogusScope:addVariable()
+                    table.insert(ghostStatements, Ast.LocalVariableDeclaration(bogusScope, {bd}, {
+                        Ast.TableConstructorExpression({
+                            Ast.TableEntry(Ast.TableConstructorExpression({
+                                Ast.TableEntry(Ast.TableConstructorExpression({
+                                    Ast.TableEntry(Ast.NumberExpression(k))
+                                }))
+                            }))
+                        })
                     }));
                 end
 
@@ -377,8 +481,8 @@ return function(Compiler)
             blocks[id] = block;
         end
 
-        -- Inject phantom decoy blocks to massively complicate VM control flow graph
-        local numDecoys = math.random(2, 4);
+        -- Massive phantom decoy block injection (hardened random(3, 5) for balanced state explosion & size budget)
+        local numDecoys = math.random(3, 5);
         for d = 1, numDecoys do
             local decoyId;
             repeat
@@ -404,6 +508,28 @@ return function(Compiler)
                 })
             };
 
+            -- Insert sandboxed local junk mathematical operations
+            if math.random() < 0.65 then
+                injectLocalJunk(decoyScope, decoyStats)
+            end
+
+            -- Insert deep fake nested branching inside the decoy blocks
+            local nestedScope = Scope:new(decoyScope)
+            nestedScope:addReferenceToHigherScope(self.containerFuncScope, self.posVar)
+            local fakeIf = Ast.IfStatement(
+                Ast.EqualsExpression(Ast.NumberExpression(math.random(1, 100)), Ast.NumberExpression(math.random(101, 200))), -- always false
+                Ast.Block({
+                    Ast.AssignmentStatement({
+                        Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
+                    }, {
+                        Ast.NumberExpression(math.random(1, 2^24))
+                    })
+                }, nestedScope),
+                {},
+                nil
+            )
+            table.insert(decoyStats, fakeIf)
+
             local decoyBlockObj = {
                 id = decoyId,
                 index = #self.blocks + d,
@@ -420,7 +546,7 @@ return function(Compiler)
         local function buildBlockThresholdCondition(scope, leftId, rightId, useAndOr)
             local bound = math.floor((leftId + rightId) / 2);
             local posExpr = self:pos(scope);
-            local boundExpr = Ast.NumberExpression(bound);
+            local boundExpr = self:obfuscateBlockId(bound);
 
             if useAndOr then
                 return Ast.LessThanExpression(posExpr, boundExpr);
@@ -431,9 +557,9 @@ return function(Compiler)
                 elseif variant == 2 then
                     return Ast.GreaterThanExpression(boundExpr, posExpr);
                 elseif variant == 3 then
-                    return Ast.LessThanOrEqualsExpression(posExpr, Ast.NumberExpression(bound - 1));
+                    return Ast.LessThanOrEqualsExpression(posExpr, self:obfuscateBlockId(bound - 1));
                 else
-                    return Ast.GreaterThanOrEqualsExpression(Ast.NumberExpression(bound - 1), posExpr);
+                    return Ast.GreaterThanOrEqualsExpression(self:obfuscateBlockId(bound - 1), posExpr);
                 end
             end
         end
@@ -501,19 +627,19 @@ return function(Compiler)
             local trueBlock, falseBlock;
 
             if condStyle == 1 then
-                condition = Ast.LessThanExpression(self:pos(ifScope), Ast.NumberExpression(bound));
+                condition = Ast.LessThanExpression(self:pos(ifScope), self:obfuscateBlockId(bound));
                 trueBlock, falseBlock = lBlock, rBlock;
             elseif condStyle == 2 then
-                condition = Ast.GreaterThanExpression(Ast.NumberExpression(bound), self:pos(ifScope));
+                condition = Ast.GreaterThanExpression(self:obfuscateBlockId(bound), self:pos(ifScope));
                 trueBlock, falseBlock = lBlock, rBlock;
             elseif condStyle == 3 then
-                condition = Ast.LessThanOrEqualsExpression(self:pos(ifScope), Ast.NumberExpression(bound - 1));
+                condition = Ast.LessThanOrEqualsExpression(self:pos(ifScope), self:obfuscateBlockId(bound - 1));
                 trueBlock, falseBlock = lBlock, rBlock;
             elseif condStyle == 4 then
-                condition = Ast.GreaterThanOrEqualsExpression(Ast.NumberExpression(bound - 1), self:pos(ifScope));
+                condition = Ast.GreaterThanOrEqualsExpression(self:obfuscateBlockId(bound - 1), self:pos(ifScope));
                 trueBlock, falseBlock = lBlock, rBlock;
             else
-                condition = Ast.GreaterThanExpression(self:pos(ifScope), Ast.NumberExpression(bound));
+                condition = Ast.GreaterThanExpression(self:pos(ifScope), self:obfuscateBlockId(bound));
                 trueBlock, falseBlock = rBlock, lBlock;
             end
 

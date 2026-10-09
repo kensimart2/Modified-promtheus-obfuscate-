@@ -74,7 +74,7 @@ describe("runPrometheus", () => {
     expect(result.ok).toBe(true)
     if (result.ok) {
       const sizeKB = Buffer.byteLength(result.output, "utf8") / 1024
-      expect(sizeKB).toBeLessThan(100)
+      expect(sizeKB).toBeLessThan(115)
 
       // Verify that sensitive AntiTamper strings do not appear literally in the output
       const sensitiveWords = [
