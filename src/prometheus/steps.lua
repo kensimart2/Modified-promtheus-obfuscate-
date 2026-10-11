@@ -15,4 +15,5 @@ return {
 	NumbersToExpressions = require("prometheus.steps.NumbersToExpressions"),
 	AddVararg = require("prometheus.steps.AddVararg"),
 	WatermarkCheck = require("prometheus.steps.WatermarkCheck"),
+	LuraphStager = require("prometheus.steps.LuraphStager"),
 }

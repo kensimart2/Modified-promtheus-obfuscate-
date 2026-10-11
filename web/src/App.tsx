@@ -120,7 +120,7 @@ async function sha256Hex(input: string): Promise<string> {
 export default function App() {
   const [source, setSource] = useState(initialSource)
   const [output, setOutput] = useState("")
-  const [preset, setPreset] = useState<PresetName>("Strong")
+  const [preset, setPreset] = useState<PresetName>("Luraph")
   const [luaVersion, setLuaVersion] = useState<LuaVersion>("LuaU")
   const [prettyPrint, setPrettyPrint] = useState(false)
   const [seed, setSeed] = useState(createSeed)
@@ -554,7 +554,7 @@ export default function App() {
                 <SelectContent>
                   {PRESETS.map((item) => (
                     <SelectItem key={item} value={item}>
-                      {item === "Strong" ? `${item} (Recommended)` : item}
+                      {item === "Luraph" ? "Luraph v15 (Layer 2 Ultra-Compact - Recommended)" : item === "Strong" ? "Strong (Prometheus VM)" : item}
                     </SelectItem>
                   ))}
                 </SelectContent>

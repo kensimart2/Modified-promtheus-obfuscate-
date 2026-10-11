@@ -1,4 +1,4 @@
-export const PRESETS = ["Minify", "Weak", "Medium", "Strong"] as const
+export const PRESETS = ["Luraph", "Strong", "Medium", "Weak", "Minify"] as const
 export const LUA_VERSIONS = ["Lua51", "LuaU"] as const
 
 export type PresetName = (typeof PRESETS)[number]

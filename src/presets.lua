@@ -50,6 +50,48 @@ return {
 		},
 	},
 
+	-- Luraph v15-style ultra-compact polymorphic stager
+	["Luraph"] = {
+		LuaVersion = "LuaU",
+		VarNamePrefix = "",
+		NameGenerator = "MangledShuffled",
+		PrettyPrint = false,
+		Seed = 0,
+		Steps = {
+			{
+				Name = "NumbersToExpressions",
+				Settings = {
+					Threshold = 0.5,
+					NumberRepresentationMutation = true,
+				},
+			},
+			{ Name = "EncryptStrings", Settings = {} },
+			{
+				Name = "AntiTamper",
+				Settings = {
+					UseDebug = false,
+					AntiHook = true,
+				},
+			},
+			{ Name = "Vmify", Settings = {} },
+			{
+				Name = "ConstantArray",
+				Settings = {
+					Threshold = 1,
+					StringsOnly = true,
+					Shuffle = true,
+					Rotate = true,
+					Encoding = "mixed",
+					LocalWrapperThreshold = 0.7,
+					LocalWrapperCount = 1,
+					LocalWrapperArgCount = 4,
+					MaxWrapperOffset = 256,
+				},
+			},
+			{ Name = "LuraphStager", Settings = { Compress = true } },
+		},
+	},
+
 	-- Medium obfuscation. Moderate obfuscation, compact size, high security.
 	["Medium"] = {
 		LuaVersion = "LuaU",

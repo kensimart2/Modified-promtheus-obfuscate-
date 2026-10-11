@@ -233,8 +233,8 @@ return function(Compiler)
                 table.insert(blockstats, stat.statement);
             end
 
-            -- Inject sandboxed local junk mathematical operations (with 35% probability to stay under size budget)
-            if math.random() < 0.35 then
+            -- Inject local state operations (with controlled probability to stay under ~100kb budget)
+            if math.random() < 0.15 then
                 injectLocalJunk(block.scope, blockstats)
             end
 
@@ -508,8 +508,8 @@ return function(Compiler)
                 })
             };
 
-            -- Insert sandboxed local junk mathematical operations
-            if math.random() < 0.65 then
+            -- Insert decoy local state operations
+            if math.random() < 0.25 then
                 injectLocalJunk(decoyScope, decoyStats)
             end
 

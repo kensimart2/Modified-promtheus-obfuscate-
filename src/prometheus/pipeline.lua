@@ -221,6 +221,13 @@ function Pipeline:apply(code, filename)
 		logger:info(string.format("Step \"%s\" Done in %.2f seconds", step.Name or "Unnamed", gettime() - stepStartTime));
 	end
 
+	if self.finalCode then
+		local timeDiff = gettime() - startTime;
+		logger:info(string.format("Obfuscation Done in %.2f seconds", timeDiff));
+		logger:info(string.format("Generated Code size is %.2f%% of the Source Code size", (string.len(self.finalCode) / sourceLen)*100));
+		return self.finalCode;
+	end
+
 	-- Rename Variables Step
 	self:renameVariables(ast);
 

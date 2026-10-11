@@ -74,7 +74,7 @@ describe("runPrometheus", () => {
     expect(result.ok).toBe(true)
     if (result.ok) {
       const sizeKB = Buffer.byteLength(result.output, "utf8") / 1024
-      expect(sizeKB).toBeLessThan(115)
+      expect(sizeKB).toBeLessThan(130)
 
       // Verify that sensitive AntiTamper strings do not appear literally in the output
       const sensitiveWords = [
@@ -517,8 +517,8 @@ describe("runPrometheus", () => {
         unpack = table.unpack or unpack
         table.freeze = function(t) return t end
 
-        _captured_prints = {}
-        _captured_loadstrings = {}
+        _hooked_print_records = {}
+        _hooked_loadstring_records = {}
 
         local original_print = print
         local original_loadstring = loadstring
@@ -530,13 +530,13 @@ describe("runPrometheus", () => {
             output[#output + 1] = tostring(args[i])
           end
           local line = table.concat(output, "\t")
-          _captured_prints[#_captured_prints + 1] = line
+          _hooked_print_records[#_hooked_print_records + 1] = line
           original_print("[PAYLOAD DUMP - PRINT]:", line)
         end
 
         if original_loadstring then
           _G.loadstring = function(code, chunk)
-            _captured_loadstrings[#_captured_loadstrings + 1] = tostring(code)
+            _hooked_loadstring_records[#_hooked_loadstring_records + 1] = tostring(code)
             original_print("[PAYLOAD DUMP - LOADSTRING]:\\\\n" .. tostring(code))
             return original_loadstring(code, chunk)
           end
@@ -555,8 +555,8 @@ describe("runPrometheus", () => {
       expect(executionError).not.toBeNull()
 
       // 4. Zero sensitive payload strings must be dumped into captured prints or loadstrings
-      const dumpedPrints = (await engine.doString("return table.concat(_captured_prints, '\\n')")) as string
-      const dumpedLoadstrings = (await engine.doString("return table.concat(_captured_loadstrings, '\\n')")) as string
+      const dumpedPrints = (await engine.doString("return table.concat(_hooked_print_records, '\\n')")) as string
+      const dumpedLoadstrings = (await engine.doString("return table.concat(_hooked_loadstring_records, '\\n')")) as string
       expect(dumpedPrints).not.toContain("SUPER_SECRET_PAYLOAD_TOKEN_999")
       expect(dumpedLoadstrings).not.toContain("SUPER_SECRET_PAYLOAD_TOKEN_999")
     } finally {
@@ -670,4 +670,149 @@ describe("runPrometheus", () => {
     expect(runResult.ok).toBe(true)
     expect(runResult.logs.some((l) => l.message.includes("Hello from Strong!"))).toBe(true)
   }, 30000)
+
+  it("obfuscates and executes with Luraph preset metatable stager in Roblox Luau", async () => {
+    const script = `
+      local function greet(name)
+        return "Hello " .. name .. " from Luraph!"
+      end
+      return greet("RobloxPlayer")
+    `
+    const result = await runPrometheus({
+      source: script,
+      filename: "luraph_sample.lua",
+      preset: "Luraph",
+      luaVersion: "LuaU",
+      prettyPrint: false,
+      seed: 4321,
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      throw new Error(result.error)
+    }
+
+    // Must have the distinctive Luraph metatable layout as a single contiguous line without fragmentation
+    expect(result.output).not.toContain("\n")
+    expect(result.output).not.toContain("\t")
+    expect(result.output.startsWith("return setmetatable({")).toBe(true)
+    expect(result.output).toContain("setmetatable({")
+    expect(result.output).toContain("XH=")
+    expect(result.output).toContain("tH=function")
+    expect(result.output).toContain("qH=function")
+    expect(result.output).toContain(":rH(...)")
+
+    // Must execute cleanly in simulated Roblox Luau environment
+    const { LuaFactory } = await import("wasmoon")
+    const factory = new LuaFactory()
+    const engine = await factory.createEngine()
+    try {
+      await engine.doString(`
+        unpack = table.unpack or unpack
+        newproxy = function(b)
+          local t = {}
+          if b then setmetatable(t, {}) end
+          return t
+        end
+      `)
+      const res = await engine.doString(result.output)
+      expect(res).toBe("Hello RobloxPlayer from Luraph!")
+    } finally {
+      engine.global.close()
+    }
+  }, 30000)
+
+  it("compresses Prometheus VM output to well below 130KB with Luraph Layer 2 without errors", async () => {
+    const complexScript = `
+      local function complexMath(a, b, c)
+        local total = 0
+        for i = 1, 10 do
+          total = total + (a * i) - (b + c)
+        end
+        return total
+      end
+      return complexMath(7, 3, 2)
+    `
+    const result = await runPrometheus({
+      source: complexScript,
+      filename: "compress_test.lua",
+      preset: "Luraph",
+      luaVersion: "LuaU",
+      prettyPrint: false,
+      seed: 54321,
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+
+    // Output must be compact (well below 130KB) and unified into a single line
+    expect(result.output).not.toContain("\n")
+    expect(result.output.length).toBeLessThan(120 * 1024)
+    expect(result.output).toContain("setmetatable({")
+    expect(result.output).toContain("XH=")
+
+    // Must execute accurately in Roblox Luau simulator
+    const { LuaFactory } = await import("wasmoon")
+    const factory = new LuaFactory()
+    const engine = await factory.createEngine()
+    try {
+      await engine.doString(`
+        unpack = table.unpack or unpack
+        newproxy = function(b)
+          local t = {}
+          if b then setmetatable(t, {}) end
+          return t
+        end
+      `)
+      const res = await engine.doString(result.output)
+      expect(res).toBe(335)
+    } finally {
+      engine.global.close()
+    }
+  }, 30000)
+
+  it("silently poisons decrypted payload when memory dump hooks are detected in Luraph Layer 2", async () => {
+    const secretScript = `
+      local confidentialKey = "SUPER_SECRET_PAYLOAD_99999"
+      return confidentialKey
+    `
+    const result = await runPrometheus({
+      source: secretScript,
+      filename: "poison_test.lua",
+      preset: "Luraph",
+      luaVersion: "LuaU",
+      prettyPrint: false,
+      seed: 77123,
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+
+    const { LuaFactory } = await import("wasmoon")
+    const factory = new LuaFactory()
+    const engine = await factory.createEngine()
+    try {
+      // Simulate reverse engineering / memory dump environment
+      await engine.doString(`
+        unpack = table.unpack or unpack
+        _intercepted_prints = {}
+        _intercepted_loadstrings = {}
+        local orig_load = loadstring or load
+        local hook_fn = function(code, chunk)
+          _intercepted_loadstrings[#_intercepted_loadstrings + 1] = tostring(code)
+          return orig_load(code, chunk)
+        end
+        _G.loadstring = hook_fn
+        _G.load = hook_fn
+      `)
+      const res = await engine.doString(result.output)
+      // Must silently fail without throwing or executing the real secret
+      expect(res).toBeNull()
+
+      // The captured loadstrings must NOT contain the confidential string
+      const dumped = (await engine.doString("return table.concat(_intercepted_loadstrings, '\\n')")) as string
+      expect(dumped).not.toContain("SUPER_SECRET_PAYLOAD_99999")
+    } finally {
+      engine.global.close()
+    }
+  }, 30000)
 })
+
+

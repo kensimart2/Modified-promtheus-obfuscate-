@@ -1,0 +1,6 @@
+{
+  "summary":  "Rencana peningkatan keamanan Layer 2 Luraph Obfuscator:\n1. Multi-Stage Cascading Rolling Cipher & Dynamic Permutation\n2. Verifikasi Integritas Loader & Silent Poisoning Anti-Dump\n3. Kompresi Adaptif LZSS Lanjutan & Stream Base91 untuk Menjaga Ukuran File Sekitar 100KB (<130KB)\n4. Mempertahankan Format Monolithic 1 Baris Utuh Tanpa Fragmen",
+  "updatedAt":  "2026-10-11T02:01:01.530227162Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
