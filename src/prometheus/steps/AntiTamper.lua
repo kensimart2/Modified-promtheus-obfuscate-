@@ -208,7 +208,8 @@ function AntiTamper:apply(ast, pipeline)
             end
         end
 
-        local _f_cowrap = coroutine.wrap;
+        local _f_cocreate = coroutine.create;
+        local _f_coresume = coroutine.resume;
         local _f_costatus = coroutine.status;
         local _f_corunning = coroutine.running;
         local _co_ok = _f_pcall(function()
@@ -217,12 +218,12 @@ function AntiTamper:apply(ast, pipeline)
                 valid = false;
             end
             local _sync = false;
-            local _c = _f_cowrap(function()
+            local _c = _f_cocreate(function()
                 _sync = true;
                 return 42;
             end);
-            local _ret = _c();
-            if not _sync or _ret ~= 42 then
+            local _ok, _ret = _f_coresume(_c);
+            if not _ok or not _sync or _ret ~= 42 then
                 valid = false;
             end
         end);
@@ -333,16 +334,34 @@ function AntiTamper:apply(ast, pipeline)
         local _k_getgc = "\103\101\116\103\099";
         local _is_internal_runner = (_G and _G.__prometheusPushLog ~= nil) or (_g_env and _g_env.__prometheusPushLog ~= nil);
 
+        local _fn_ishooked = isfunctionhooked or ishooked or (_g_env and (_g_env.isfunctionhooked or _g_env.ishooked));
+        local _fn_islclosure = islclosure or (_g_env and _g_env.islclosure);
+        local _fn_iscclosure = iscclosure or (_g_env and _g_env.iscclosure);
+        local _fn_getupvalues = getupvalues or (_g_env and _g_env.getupvalues);
+
+        if debug and debug.info then
+            local _ok_self, _src_self = _f_pcall(debug.info, debug.info, "s");
+            if _ok_self and _src_self and _src_self ~= "[C]" then
+                valid = false;
+                err();
+                return;
+            end
+        end
+        if _fn_ishooked and debug and debug.info then
+            local _ok_ih, _src_ih = _f_pcall(debug.info, _fn_ishooked, "s");
+            if _ok_ih and _src_ih and _src_ih ~= "[C]" then
+                valid = false;
+                err();
+                return;
+            end
+        end
+
         local _chk_hook = function(fn, name)
             if not fn or _f_type(fn) ~= _k_fn then return false; end
             if _is_internal_runner and (name == _k_prn or name == _k_wrn) then return false; end
             if debug and debug.info then
                 local _ok_s, _src = _f_pcall(debug.info, fn, "s");
                 if _ok_s and _src and _src ~= "[C]" then return true; end
-                local _ok_l, _ln = _f_pcall(debug.info, fn, "l");
-                if _ok_l and _ln and _ln > 0 then return true; end
-                local _ok_a, _numparams = _f_pcall(debug.info, fn, "a");
-                if _ok_a and _numparams and _numparams < 0 then return true; end
             end
             if debug and debug.getinfo then
                 local _ok_i, _inf = _f_pcall(debug.getinfo, fn, "S");
@@ -353,19 +372,12 @@ function AntiTamper:apply(ast, pipeline)
                 local _ok_u, _u1 = _f_pcall(debug.getupvalue, fn, 1);
                 if _ok_u and _u1 ~= nil then return true; end
             end
-            local _fn_is_hooked = isfunctionhooked or (_g_env and _g_env.isfunctionhooked);
-            if _fn_is_hooked and _f_pcall(_fn_is_hooked, fn) and _fn_is_hooked(fn) then return true; end
-            local _fn_ishooked = ishooked or (_g_env and _g_env.ishooked);
-            if _fn_ishooked and _f_pcall(_fn_ishooked, fn) and _fn_ishooked(fn) then return true; end
-            local _fn_islclosure = islclosure or (_g_env and _g_env.islclosure);
-            if _fn_islclosure and _f_pcall(_fn_islclosure, fn) and _fn_islclosure(fn) then return true; end
-            local _fn_iscclosure = iscclosure or (_g_env and _g_env.iscclosure);
-            if _fn_iscclosure and _f_pcall(_fn_iscclosure, fn) and not _fn_iscclosure(fn) then return true; end
-            local _fn_getupvalues = getupvalues or (_g_env and _g_env.getupvalues);
             if _fn_getupvalues and _f_pcall(_fn_getupvalues, fn) then
                 local _ups = _fn_getupvalues(fn);
                 if _f_type(_ups) == _k_tbl and #_ups > 0 then return true; end
             end
+            if _fn_islclosure and _f_pcall(_fn_islclosure, fn) and _fn_islclosure(fn) then return true; end
+            if _fn_iscclosure and _f_pcall(_fn_iscclosure, fn) and not _fn_iscclosure(fn) then return true; end
             return false;
         end;
 
@@ -377,14 +389,29 @@ function AntiTamper:apply(ast, pipeline)
             end
             if _ok_gc and _f_type(_gc_arr) == _k_tbl and #_gc_arr < 800 then
                 valid = false;
+                err();
+                return;
             end
         end
 
         if _g_env and getmetatable(_g_env) ~= nil then
             valid = false;
+            err();
+            return;
         end
-        if getrawmetatable and _g_env and getrawmetatable(_g_env) ~= nil then
-            valid = false;
+        if getrawmetatable then
+            local _probe = setmetatable({}, { __metatable = _k_lck });
+            local _ok_probe, _probe_mt = _f_pcall(getrawmetatable, _probe);
+            if not _ok_probe or _f_type(_probe_mt) ~= _k_tbl or _probe_mt[_k_mt] ~= _k_lck then
+                valid = false;
+                err();
+                return;
+            end
+            if _g_env and getrawmetatable(_g_env) ~= nil then
+                valid = false;
+                err();
+                return;
+            end
         end
 
         local _core_builtins = {
@@ -400,17 +427,36 @@ function AntiTamper:apply(ast, pipeline)
             local _fn_entry = _core_builtins[_b];
             if _chk_hook(_fn_entry[1], _fn_entry[2]) then
                 valid = false;
+                err();
+                return;
             end
         end
 
-        if _g_env[_k_prn] and _chk_hook(_g_env[_k_prn], _k_prn) then valid = false; end
-        if print and _chk_hook(print, _k_prn) then valid = false; end
-        if _g_env[_k_lds] and _chk_hook(_g_env[_k_lds], _k_lds) then valid = false; end
-        if loadstring and _chk_hook(loadstring, _k_lds) then valid = false; end
-        if _g_env[_k_wrn] and _chk_hook(_g_env[_k_wrn], _k_wrn) then valid = false; end
+        local _clk = (os and os.clock) or tick;
+        if _clk and _chk_hook(_clk, "clock") then valid = false; err(); return; end
+        if string and string.char and _chk_hook(string.char, "string.char") then valid = false; err(); return; end
+
+        if _g_env[_k_prn] and _chk_hook(_g_env[_k_prn], _k_prn) then valid = false; err(); return; end
+        if print and _chk_hook(print, _k_prn) then valid = false; err(); return; end
+        if _g_env[_k_lds] and _chk_hook(_g_env[_k_lds], _k_lds) then valid = false; err(); return; end
+        if loadstring and _chk_hook(loadstring, _k_lds) then valid = false; err(); return; end
+        if _g_env[_k_wrn] and _chk_hook(_g_env[_k_wrn], _k_wrn) then valid = false; err(); return; end
+
+        if _fn_ishooked then
+            local _crit_targets = { print, loadstring, _g_env[_k_prn], _g_env[_k_lds] };
+            for _c_idx = 1, #_crit_targets do
+                local _crit = _crit_targets[_c_idx];
+                if _crit and _f_pcall(_fn_ishooked, _crit) and _fn_ishooked(_crit) then
+                    valid = false;
+                    err();
+                    return;
+                end
+            end
+        end
 
         if not valid then
             err();
+            return;
         end
     end
 

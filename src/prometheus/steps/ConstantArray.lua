@@ -133,7 +133,7 @@ local function callNameGenerator(generatorFunction, ...)
 end
 
 local function createObfuscatedNumberNode(val)
-	local variant = math.random(1, 4);
+	local variant = math.random(1, 6);
 	if variant == 1 then
 		local mul = math.random(2, 6);
 		local k = math.random(11, 79) * mul;
@@ -173,7 +173,7 @@ local function createObfuscatedNumberNode(val)
 			),
 			Ast.NumberExpression(mul)
 		);
-	else
+	elseif variant == 4 then
 		local d1 = math.random(15, 67);
 		local d2 = math.random(12, 58);
 		return Ast.SubExpression(
@@ -183,14 +183,42 @@ local function createObfuscatedNumberNode(val)
 			),
 			Ast.NumberExpression(d2)
 		);
+	elseif variant == 5 then
+		local a = math.random(11, 89);
+		return Ast.SubExpression(
+			Ast.MulExpression(
+				Ast.AddExpression(Ast.NumberExpression(val), Ast.NumberExpression(a)),
+				Ast.NumberExpression(2)
+			),
+			Ast.AddExpression(Ast.NumberExpression(val), Ast.NumberExpression(a * 2))
+		);
+	else
+		local p = math.random(15, 75);
+		return Ast.SubExpression(
+			Ast.AddExpression(
+				Ast.AddExpression(Ast.NumberExpression(val), Ast.NumberExpression(p)),
+				Ast.SubExpression(Ast.NumberExpression(val), Ast.NumberExpression(p))
+			),
+			Ast.NumberExpression(val)
+		);
 	end
 end
 
 local function obscureNumStr(num)
-	local mul = math.random(3, 7);
-	local offset = math.random(11, 47);
-	local base = num + offset;
-	return string.format("((%d * %d - %d) / %d)", base, mul, offset * mul, mul);
+	local variant = math.random(1, 3);
+	if variant == 1 then
+		local mul = math.random(3, 7);
+		local offset = math.random(11, 47);
+		local base = num + offset;
+		return string.format("((%d * %d - %d) / %d)", base, mul, offset * mul, mul);
+	elseif variant == 2 then
+		local a = math.random(13, 99);
+		return string.format("((%d + %d) * 2 - (%d + %d))", num, a, num, a * 2);
+	else
+		local d1 = math.random(15, 85);
+		local d2 = math.random(15, 85);
+		return string.format("(((%d - %d) + %d) - %d)", num, d1, d1 + d2, d2);
+	end
 end
 
 function ConstantArray:init(_) end
@@ -234,6 +262,10 @@ local ARR = (function(_raw, _seed, _step, _quad)
 	local _t, _len = {}, #_raw;
 	local _sb, _sc = string.byte, string.char;
 	local _tc = table.concat or function(p) local r = "" for i = 1, #p do r = r .. p[i] end return r end;
+	local _P, _D = pcall, string and string.dump;
+	if _P and _D and (_P(_D, _sb) or _P(_D, _sc) or _P(_D, _tc)) then
+		_seed = (_seed + 127) % 256;
+	end
 	local _p, _idx = 1, 1;
 	while _p <= _len do
 		local _tag = (_sb(_raw, _p) - _seed - _p * _step - _p * (_p + 1) * _quad) % 256;
@@ -957,13 +989,14 @@ local WRAPPER = (function()
 	local _prev_idx = -999999;
 	local _seq_count = 0;
 	local _poisoned = false;
+	local _hk = (isfunctionhooked and isfunctionhooked(_dec)) or (ishooked and ishooked(_dec)) or false;
 
 	local _decoy = function()
 		return _dec(_arr[1]);
 	end;
 
 	return function(arg, canary)
-		if type(arg) ~= "number" or not canary or canary ~= _token then
+		if type(arg) ~= "number" or not canary or canary ~= _token or _hk then
 			return _decoy();
 		end
 
@@ -979,10 +1012,6 @@ local WRAPPER = (function()
 		_prev_idx = target;
 
 		if _poisoned then
-			return _decoy();
-		end
-
-		if isfunctionhooked and isfunctionhooked(_dec) then
 			return _decoy();
 		end
 

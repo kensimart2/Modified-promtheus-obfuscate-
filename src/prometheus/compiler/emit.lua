@@ -141,33 +141,98 @@ return function(Compiler)
         local blocks = {};
 
         local function injectLocalJunk(blockScope, blockstats)
-            local d1 = blockScope:addVariable()
-            local d2 = blockScope:addVariable()
-            local d3 = blockScope:addVariable()
+            local junkType = math.random(1, 4);
+            if junkType == 1 then
+                local d1 = blockScope:addVariable()
+                local d2 = blockScope:addVariable()
+                local d3 = blockScope:addVariable()
 
-            -- local d1, d2, d3 = rand, rand, rand
-            table.insert(blockstats, Ast.LocalVariableDeclaration(blockScope, {d1, d2, d3}, {
-                Ast.NumberExpression(math.random(10, 1000)),
-                Ast.NumberExpression(math.random(10, 1000)),
-                Ast.NumberExpression(math.random(10, 1000))
-            }))
+                table.insert(blockstats, Ast.LocalVariableDeclaration(blockScope, {d1, d2, d3}, {
+                    Ast.NumberExpression(math.random(10, 1000)),
+                    Ast.NumberExpression(math.random(10, 1000)),
+                    Ast.NumberExpression(math.random(10, 1000))
+                }))
 
-            -- d1 = d2 + d3
-            table.insert(blockstats, Ast.AssignmentStatement({
-                Ast.AssignmentVariable(blockScope, d1)
-            }, {
-                Ast.AddExpression(Ast.VariableExpression(blockScope, d2), Ast.VariableExpression(blockScope, d3))
-            }))
+                table.insert(blockstats, Ast.AssignmentStatement({
+                    Ast.AssignmentVariable(blockScope, d1)
+                }, {
+                    Ast.AddExpression(Ast.VariableExpression(blockScope, d2), Ast.VariableExpression(blockScope, d3))
+                }))
 
-            -- d2 = d1 * rand
-            table.insert(blockstats, Ast.AssignmentStatement({
-                Ast.AssignmentVariable(blockScope, d2)
-            }, {
-                Ast.MulExpression(Ast.VariableExpression(blockScope, d1), Ast.NumberExpression(math.random(2, 6)))
-            }))
+                table.insert(blockstats, Ast.AssignmentStatement({
+                    Ast.AssignmentVariable(blockScope, d2)
+                }, {
+                    Ast.MulExpression(Ast.VariableExpression(blockScope, d1), Ast.NumberExpression(math.random(2, 6)))
+                }))
+            elseif junkType == 2 then
+                local d1 = blockScope:addVariable()
+                local d2 = blockScope:addVariable()
+
+                table.insert(blockstats, Ast.LocalVariableDeclaration(blockScope, {d1, d2}, {
+                    Ast.NumberExpression(math.random(50, 500)),
+                    Ast.NumberExpression(math.random(3, 17))
+                }))
+
+                table.insert(blockstats, Ast.AssignmentStatement({
+                    Ast.AssignmentVariable(blockScope, d1)
+                }, {
+                    Ast.ModExpression(
+                        Ast.AddExpression(
+                            Ast.MulExpression(Ast.VariableExpression(blockScope, d1), Ast.VariableExpression(blockScope, d2)),
+                            Ast.NumberExpression(math.random(13, 97))
+                        ),
+                        Ast.NumberExpression(1024)
+                    )
+                }))
+            elseif junkType == 3 then
+                local d1 = blockScope:addVariable()
+                local d2 = blockScope:addVariable()
+
+                table.insert(blockstats, Ast.LocalVariableDeclaration(blockScope, {d1, d2}, {
+                    Ast.NumberExpression(math.random(100, 2000)),
+                    Ast.NumberExpression(math.random(10, 99))
+                }))
+
+                table.insert(blockstats, Ast.AssignmentStatement({
+                    Ast.AssignmentVariable(blockScope, d1)
+                }, {
+                    Ast.SubExpression(
+                        Ast.AddExpression(Ast.VariableExpression(blockScope, d1), Ast.VariableExpression(blockScope, d2)),
+                        Ast.NumberExpression(math.random(1, 9))
+                    )
+                }))
+            else
+                local d1 = blockScope:addVariable()
+                local d2 = blockScope:addVariable()
+                local d3 = blockScope:addVariable()
+
+                table.insert(blockstats, Ast.LocalVariableDeclaration(blockScope, {d1, d2, d3}, {
+                    Ast.NumberExpression(math.random(100, 999)),
+                    Ast.NumberExpression(math.random(1, 63)),
+                    Ast.NumberExpression(math.random(1000, 5000))
+                }))
+
+                table.insert(blockstats, Ast.AssignmentStatement({
+                    Ast.AssignmentVariable(blockScope, d3)
+                }, {
+                    Ast.ModExpression(
+                        Ast.AddExpression(
+                            Ast.MulExpression(Ast.VariableExpression(blockScope, d1), Ast.NumberExpression(31)),
+                            Ast.VariableExpression(blockScope, d2)
+                        ),
+                        Ast.NumberExpression(65536)
+                    )
+                }))
+
+                table.insert(blockstats, Ast.AssignmentStatement({
+                    Ast.AssignmentVariable(blockScope, d1)
+                }, {
+                    Ast.AddExpression(Ast.VariableExpression(blockScope, d3), Ast.NumberExpression(math.random(1, 15)))
+                }))
+            end
         end
 
-        util.shuffle(self.blocks);
+        local K_POOL = { 17, 31, 67, 127 };
 
         for i, block in ipairs(self.blocks) do
             local id = block.id;
@@ -234,13 +299,13 @@ return function(Compiler)
             end
 
             -- Inject local state operations (with controlled probability to stay under ~100kb budget)
-            if math.random() < 0.15 then
+            if math.random() < 0.08 then
                 injectLocalJunk(block.scope, blockstats)
             end
 
-            -- Opaque predicate injection rate (35% for optimal balance of deep AST confusion and compactness)
-            if #blockstats > 1 and math.random() < 0.35 then
-                local k = math.random(5, 45);
+            -- Opaque predicate injection rate (balanced AST confusion and compactness)
+            if #blockstats > 1 and math.random() < 0.16 then
+                local k = K_POOL[math.random(1, #K_POOL)];
                 local invVariant = math.random(1, 16);
                 local deadCond;
 
@@ -441,7 +506,7 @@ return function(Compiler)
                     table.insert(ghostStatements, Ast.AssignmentStatement({
                         Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
                     }, {
-                        Ast.NumberExpression(math.random(1, 2^24))
+                        Ast.NumberExpression(k * 4096 + 1337)
                     }));
                 elseif ghostVariant == 4 then
                     table.insert(ghostStatements, Ast.AssignmentStatement({
@@ -481,8 +546,8 @@ return function(Compiler)
             blocks[id] = block;
         end
 
-        -- Massive phantom decoy block injection (hardened random(3, 5) for balanced state explosion & size budget)
-        local numDecoys = math.random(3, 5);
+        -- Calibrated phantom decoy block injection for balanced state explosion & 120KB budget
+        local numDecoys = 1;
         for d = 1, numDecoys do
             local decoyId;
             repeat
@@ -551,15 +616,27 @@ return function(Compiler)
             if useAndOr then
                 return Ast.LessThanExpression(posExpr, boundExpr);
             else
-                local variant = math.random(1, 4);
+                local variant = math.random(1, 6);
                 if variant == 1 then
                     return Ast.LessThanExpression(posExpr, boundExpr);
                 elseif variant == 2 then
                     return Ast.GreaterThanExpression(boundExpr, posExpr);
                 elseif variant == 3 then
                     return Ast.LessThanOrEqualsExpression(posExpr, self:obfuscateBlockId(bound - 1));
-                else
+                elseif variant == 4 then
                     return Ast.GreaterThanOrEqualsExpression(self:obfuscateBlockId(bound - 1), posExpr);
+                elseif variant == 5 then
+                    local offset = K_POOL[math.random(1, #K_POOL)];
+                    return Ast.LessThanExpression(
+                        Ast.AddExpression(posExpr, Ast.NumberExpression(offset)),
+                        Ast.AddExpression(boundExpr, Ast.NumberExpression(offset))
+                    );
+                else
+                    local offset = K_POOL[math.random(1, #K_POOL)];
+                    return Ast.GreaterThanExpression(
+                        Ast.AddExpression(boundExpr, Ast.NumberExpression(offset)),
+                        Ast.AddExpression(posExpr, Ast.NumberExpression(offset))
+                    );
                 end
             end
         end
@@ -622,7 +699,7 @@ return function(Compiler)
             local rBlock = buildElseifChain(tb, mid, r, ifScope);
 
             -- Randomly choose between different condition styles
-            local condStyle = math.random(1, 5);
+            local condStyle = math.random(1, 7);
             local condition;
             local trueBlock, falseBlock;
 
@@ -638,9 +715,23 @@ return function(Compiler)
             elseif condStyle == 4 then
                 condition = Ast.GreaterThanOrEqualsExpression(self:obfuscateBlockId(bound - 1), self:pos(ifScope));
                 trueBlock, falseBlock = lBlock, rBlock;
-            else
+            elseif condStyle == 5 then
                 condition = Ast.GreaterThanExpression(self:pos(ifScope), self:obfuscateBlockId(bound));
                 trueBlock, falseBlock = rBlock, lBlock;
+            elseif condStyle == 6 then
+                local offset = K_POOL[math.random(1, #K_POOL)];
+                condition = Ast.LessThanExpression(
+                    Ast.AddExpression(self:pos(ifScope), Ast.NumberExpression(offset)),
+                    Ast.AddExpression(self:obfuscateBlockId(bound), Ast.NumberExpression(offset))
+                );
+                trueBlock, falseBlock = lBlock, rBlock;
+            else
+                local offset = K_POOL[math.random(1, #K_POOL)];
+                condition = Ast.GreaterThanExpression(
+                    Ast.AddExpression(self:obfuscateBlockId(bound), Ast.NumberExpression(offset)),
+                    Ast.AddExpression(self:pos(ifScope), Ast.NumberExpression(offset))
+                );
+                trueBlock, falseBlock = lBlock, rBlock;
             end
 
             return Ast.Block({

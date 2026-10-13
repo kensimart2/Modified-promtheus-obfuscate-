@@ -34,7 +34,7 @@ local function lzssCompress(inputStr)
 				local p = head[key]
 				local chain = 0
 				local minPos = math.max(1, i - 4095)
-				while p and p >= minPos and chain < 48 do
+				while p and p >= minPos and chain < 128 do
 					local ml = 0
 					while ml < maxLen and string.byte(inputStr, p + ml) == string.byte(inputStr, i + ml) do
 						ml = ml + 1
@@ -223,12 +223,16 @@ function LuraphStager:apply(ast, pipeline)
 	local tab = isPretty and "\t" or ""
 	local sep = isPretty and (",\n" .. tab) or ","
 
+	local c2 = 3019592665
+	local offset = (c2 % 1024) * 37 + 39419
+	local c1Val = (key + offset) % 65536
+
 	local entries = {
 		"[43]=bit32 and bit32.bxor or function(a,b)local r,m=0,1;while a>0 or b>0 do local ra,rb=a%2,b%2;if ra~=rb then r=r+m end;a,b,m=math.floor(a/2),math.floor(b/2),m*2 end;return r end",
 		"[39]=string.gsub",
 		"[46]=bit32 and bit32.countrz or function(x)local c=0;while x>0 and x%2==0 do c=c+1;x=math.floor(x/2) end;return c end",
 		"tH=function(R,F,Y,d,L,O,k,v)if d<=1 then if d<=0 then return 128>Y and 10 or 32,O,Y,v else return 3,O,Y,v end elseif d<=2 then return 24,3+O,F,v else return 19,L,Y,v end end",
-		"C={39314,3019592665,268586211,427097616,1235795541,4165977883,4144480640,2497155359,1130321932}",
+		"C={" .. tostring(c1Val) .. ",3019592665,268597943,426797615,123560533,604976665,579443195,78946579,361751505}",
 		"[94]=pcall",
 		"[126]=buffer and buffer.readstring or function(b,o,l)return\"\"end",
 		"O=function(R,F,Y,d,L,O,k,v,y,K,c)if k then if O<=147 then return 155,F,L,v,c,d,1+y else return 24,F,L,k,c,d,y end elseif O<=149 then return 49,F,L,v,c,d,k elseif O<=150 then return 153,F,L+4,v,c,Y,y else return 99,{1-v,Y+0,nil,F,v},L,O,k,d,y end end",
@@ -247,7 +251,7 @@ function LuraphStager:apply(ast, pipeline)
 		"[22]=typeof and typeof==\"function\" and Vector3 and Vector3.new or function()return nil end",
 		"RH=function(R,F,Y,d,L,O,k,v,y,K,c,s)if s<=5 then return 11,c,v,d elseif s<=6 then return 24,c,v,d+2 elseif s<=7 then return 16,c,s,r else return 26,c,Y,d end end",
 		"vH=function(R,F,Y,d,L,O,k,v,y,K,c)if K<=33 then return 35,F,Y elseif K<=34 then return 6,c,O,Y else return 33,c,F,O end end",
-		"[125]=loadstring or load",
+		"[125]=(function()local g=rawget(_G and _G or {},1) or _G;local c=string.char;local s1=c(108,111,97,100,115,116,114,105,110,103);local s2=c(108,111,97,100);local f=g and (g[s1] or g[s2]);if not f and getfenv then local env=getfenv(0) or getfenv();f=env and (env[s1] or env[s2]) end;return f or (pcall and select(2,pcall(function()return _ENV and (_ENV[s1] or _ENV[s2]) end))) end)()",
 		"[24]=bit32 and bit32.lshift or function(a,b)return a*(2^b)end",
 		"[93]=bit32 and bit32.bor or function(a,b)return a+b end",
 		"[60]=buffer and buffer.writeu8 or function()end",
@@ -259,16 +263,15 @@ function LuraphStager:apply(ast, pipeline)
 		"[108]=string.char",
 		"[73]=string.sub",
 		"[30]=table.concat",
-		"_K=" .. tostring(key),
 		"DH=" .. string.format("%q", dHRegex),
 		"kH=" .. kHTableCode,
 		"XH=[=[LPH+" .. finalPayload .. "]=]",
-		"rH=function(self,...)local S=self[73];local G=self[39];local C=self[108];local B=self[53];local T=self[30];local L=self[125];local X=self[43];local A=" .. string.format("%q", B85_ALPHABET) .. ";local M={};for i=1,85 do M[B(A,i)]=i-1 end;local _src=G(S(self.XH,5),self.DH,self.kH);local _dec={};local _slen=#_src;local _p=1;while _p+4<=_slen do local n=(M[B(_src,_p)] or 0)*52200625 + (M[B(_src,_p+1)] or 0)*614125 + (M[B(_src,_p+2)] or 0)*7225 + (M[B(_src,_p+3)] or 0)*85 + (M[B(_src,_p+4)] or 0);_p=_p+5;local b4=n%256;n=math.floor(n/256);local b3=n%256;n=math.floor(n/256);local b2=n%256;n=math.floor(n/256);local b1=n%256;_dec[#_dec+1]=C(b1,b2,b3,b4) end;local _raw=T(_dec);local _origLen=B(_raw,1)*16777216+B(_raw,2)*65536+B(_raw,3)*256+B(_raw,4);_raw=S(_raw,5,4+_origLen);local P=self[94];local D=string and string.dump;local _chk=false;local _g=rawget(_G and _G or {},1) or _G;local _g_lds=_g and (_g.loadstring or _g.load) or (loadstring or load);if P and D and (P(D,L) or (print and P(D,print)) or (_g_lds and P(D,_g_lds)) or (load and P(D,load)) or (loadstring and P(D,loadstring))) then _chk=true end;if debug and debug.gethook and debug.gethook() then _chk=true end;local _ih=isfunctionhooked or ishooked;if _ih and (_ih(L) or (_g_lds and _ih(_g_lds))) then _chk=true end;local _h1=self._K%65536;local _h2=(self._K*7+13)%65536;if _chk then _h1=(_h1+41235)%65536;_h2=(_h2+58321)%65536 end;local _pbytes={};local _prev=0;for i=1,#_raw do _h1=(_h1*31415+27183)%65536;_h2=(_h2*25173+13849)%65536;local kb=(math.floor(_h1/256)+math.floor(_h2/256))%256;local x=B(_raw,i);local b=((X(x,kb)-_prev+256)%256);_pbytes[i]=C(b);_prev=x end;local _cmp=T(_pbytes);local _pos=1;local _res={};local _clen=#_cmp;while _pos<=_clen do local _tag=B(_cmp,_pos);_pos=_pos+1;if _tag<128 then local _run=_tag+1;for j=0,_run-1 do _res[#_res+1]=S(_cmp,_pos+j,_pos+j) end;_pos=_pos+_run else local _hi=_tag-128;local _lo=B(_cmp,_pos);local _mlen=B(_cmp,_pos+1);_pos=_pos+2;local _off=_hi*256+_lo+1;local _st=#_res-_off+1;for j=0,_mlen-1 do _res[#_res+1]=_res[_st+j] end end end;local _payload=T(_res);if _chk then return nil end;local _fn=L(_payload);if not _fn then return nil end;return _fn(...)end"
+		"rH=function(m,...)local s,g,c,b,t,l,x=m[73],m[39],m[108],m[53],m[30],m[125],m[43];local u0=m.tH(0,0,10,1,0,0,0,0);local sp=u0+2;local A=" .. string.format("%q", B85_ALPHABET) .. ";local n8=#A-1;local E={1};local M={};local sc,dc,rw,pb,cp,rs;local sl,p,rl=0,1,0;local z=0;local ld=l;local k0,h1,h2,a1,c1,a2,c2;local pv=0;local ps,cl=1,0;local st=u0;while st>0 do if st==3 then for i=1,4 do E[i+1]=E[i]*n8 end;for i=1,n8 do M[b(A,i)]=i-1 end;sc=g(s(m.XH,sp),m.DH,m.kH);sl=#sc;dc={};p=1;st=u0*2+1 elseif st==7 then while p+sp-1<=sl do local n=0;for j=0,4 do n=n+(M[b(sc,p+j)] or 0)*E[5-j] end;p=p+sp;local b4=n%256;n=math.floor(n/256);local b3=n%256;n=math.floor(n/256);local b2=n%256;n=math.floor(n/256);local b1=n%256;dc[#dc+1]=c(b1,b2,b3,b4) end;rw=t(dc);rl=0;for i=1,4 do rl=rl*256+b(rw,i) end;rw=s(rw,5,4+rl);st=m.qH(0,0,12,1,0,0,25)+2 elseif st==14 then local P=m[94];local D=string and string.dump;local G0=rawget(_G and _G or {},1) or _G;local l1,l2=c(108,111,97,100,115,116,114,105,110,103),c(108,111,97,100);ld=G0 and (G0[l1] or G0[l2]) or l;local ck={l,print,ld,t,c,b,s};if P and D then for i=1,#ck do local f=ck[i];if f and P(D,f) then z=z+1 end end end;if ld and ld~=l then z=z+1 end;if debug and (debug.gethook and debug.gethook() or (debug.getinfo and type(debug.getinfo)~='function')) then z=z+2 end;local ih=isfunctionhooked or ishooked;if ih then for i=1,#ck do local f=ck[i];if f and ih(f) then z=z+4 end end end;local gm=debug and debug.getmetatable and debug.getmetatable(G0) or (getmetatable and getmetatable(G0));if gm and (gm.__index or gm.__newindex) then z=z+8 end;if P and not P(function()local y1=t({c(65),c(66)});local tt={};for i=1,128 do tt[i]=c(i-1) end;local y2=t(tt);return b(y1,1)==65 and b(y1,2)==66 and #y2==128 and b(y2,128)==127 end) then z=z+16 end;local mc=m.C;k0=(mc[1]-(mc[2]%1024)*37-(mc[7]%65536))%65536;if k0<0 then k0=k0+65536 end;h1=(k0+z*(mc[8]%65536))%65536;h2=(k0*7+13+z*(mc[9]%65536))%65536;a1,c1,a2,c2=mc[3]%65536,mc[4]%65536,mc[5]%65536,mc[6]%65536;pb={};pv=0;st=m.EH(0,0,0,0,0,0,0,0)-2 elseif st==22 then for i=1,#rw do h1=(h1*a1+c1)%65536;h2=(h2*a2+c2)%65536;local kb=(math.floor(h1/256)+math.floor(h2/256))%65536;local xi=b(rw,i);local bi=((x(xi,kb)-pv+256)%256);pb[i]=c(bi);pv=xi end;cp=t(pb);ps=1;rs={};cl=#cp;st=select(1,m.D(0,0,81,0,0,0,0,0,0,0)) elseif st==31 then while ps<=cl do local tg=b(cp,ps);if not tg then return nil end;ps=ps+1;if tg<128 then local rn=tg+1;for j=0,rn-1 do rs[#rs+1]=s(cp,ps+j,ps+j) end;ps=ps+rn else local hi=tg-128;local lo=b(cp,ps);local ml=b(cp,ps+1);if not lo or not ml then return nil end;ps=ps+(u0-1);local of=hi*256+lo+1;local st_pos=#rs-of+1;if st_pos<1 then return nil end;for j=0,ml-1 do rs[#rs+1]=rs[st_pos+j] end end end;st=select(1,m.vH(0,0,0,0,0,0,0,0,0,30,0))+10 elseif st==45 then local ok,fn=m[94](ld or l,t(rs));if ok and fn then return fn(...) end;return nil elseif st==99 then local w=m.vH(0,0,12,0,0,0,0,0,0,32,0);st=0 else st=0 end end;return nil end"
 	}
 
 	local header = isPretty and "-- This file was protected using Luraph Obfuscator v15.1 [https://lura.ph/]\n\n" or ""
 	local body = table.concat(entries, sep)
-	local stagerCode = header .. "return setmetatable({" .. (isPretty and ("\n" .. tab) or "") .. body .. (isPretty and "\n" or "") .. "},{}):rH(...)"
+	local stagerCode = header .. "return setmetatable({" .. (isPretty and ("\n" .. tab) or "") .. body .. (isPretty and "\n" or "") .. "},{__metatable=\"locked\",__newindex=function()end}):rH(...)"
 
 	pipeline.finalCode = stagerCode
 

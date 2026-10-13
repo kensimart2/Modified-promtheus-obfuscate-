@@ -12,55 +12,44 @@ local AstKind = Ast.AstKind;
 local MAX_REGS = constants.MAX_REGS;
 
 return function(Compiler)
+    local ID_SEEDS = { 17, 31, 67, 127, 257, 509 };
+
     function Compiler:obfuscateBlockId(id)
         if type(id) ~= "number" then
             return id;
         end
-        local variant = math.random(1, 5);
+        local variant = math.random(1, 6);
+        local k = ID_SEEDS[math.random(1, #ID_SEEDS)];
         if variant == 1 then
-            local k = math.random(1001, 89999);
             return Ast.SubExpression(
                 Ast.AddExpression(Ast.NumberExpression(id + k), Ast.NumberExpression(k)),
                 Ast.NumberExpression(k * 2)
             );
         elseif variant == 2 then
-            local k = math.random(1001, 89999);
             return Ast.AddExpression(
                 Ast.SubExpression(Ast.NumberExpression(id), Ast.NumberExpression(k)),
                 Ast.NumberExpression(k)
             );
         elseif variant == 3 then
-            local mul = math.random(2, 4);
-            local k = math.random(101, 4999) * mul;
-            return Ast.DivExpression(
-                Ast.SubExpression(
-                    Ast.AddExpression(
-                        Ast.MulExpression(Ast.NumberExpression(id), Ast.NumberExpression(mul)),
-                        Ast.NumberExpression(k)
-                    ),
-                    Ast.NumberExpression(k)
+            return Ast.SubExpression(
+                Ast.MulExpression(
+                    Ast.AddExpression(Ast.NumberExpression(id), Ast.NumberExpression(k)),
+                    Ast.NumberExpression(2)
                 ),
-                Ast.NumberExpression(mul)
+                Ast.AddExpression(Ast.NumberExpression(id), Ast.NumberExpression(k * 2))
             );
         elseif variant == 4 then
-            local d1 = math.random(500, 9999);
-            local d2 = math.random(500, 9999);
             return Ast.SubExpression(
-                Ast.SubExpression(
-                    Ast.AddExpression(
-                        Ast.AddExpression(Ast.NumberExpression(id), Ast.NumberExpression(d1)),
-                        Ast.NumberExpression(d2)
-                    ),
-                    Ast.NumberExpression(d1)
-                ),
-                Ast.NumberExpression(d2)
+                Ast.AddExpression(Ast.NumberExpression(id + k), Ast.NumberExpression(1)),
+                Ast.NumberExpression(k + 1)
+            );
+        elseif variant == 5 then
+            return Ast.AddExpression(
+                Ast.SubExpression(Ast.NumberExpression(id - k), Ast.NumberExpression(1)),
+                Ast.NumberExpression(k + 1)
             );
         else
-            local k = math.random(1001, 89999);
-            return Ast.SubExpression(
-                Ast.AddExpression(Ast.NumberExpression(id), Ast.NumberExpression(k)),
-                Ast.NumberExpression(k)
-            );
+            return Ast.NumberExpression(id);
         end
     end
 

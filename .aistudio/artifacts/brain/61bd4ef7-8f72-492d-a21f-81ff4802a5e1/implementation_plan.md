@@ -1,38 +1,89 @@
-# Implementation Plan: Ultra-Hardened Layer 2 Obfuscation & Compact Size Optimization
+# Peningkatan Proteksi Ketahanan Layer 1 (Luraph Polymorphic Metatable Stager)
 
-Rencana peningkatan proteksi Layer 2 (Luraph-style loader & packer) agar sangat tangguh terhadap reverse engineering dan memory dumping, sekaligus mengoptimalkan algoritma kompresi agar ukuran output terkendali stabil di kisaran 100KB (selalu di bawah batas 130KB) dalam format 1 baris utuh.
+Rencana peningkatan arsitektur Layer 1 (Stager Luraph) untuk memblokir celah hooking, inspeksi AST statis, dan dynamic payload dumping terhadap Layer 2, dirancang tahan terhadap automated reversing/skid agent tanpa melampaui batas ukuran ~100KB-125KB.
 
-## 1. Arsitektur Multi-Stage Rolling Cipher & Dynamic State Permutation
-- **Kelemahan Saat Ini**: Keystream XOR satu putaran dapat dianalisis secara linear jika cracker berhasil membaca konstanta kunci `_K`.
-- **Peningkatan Proteksi**:
-  - **Cascading 3-Round Feistel/Rolling Cipher**: Payload didekripsi melalui tiga tahap transformasi interaktif (Linear Congruential Generator + non-linear S-box rotation + variable-distance rolling transposition).
-  - **Dynamic State Permutation**: Keystream terus bergulir (*rolling*) bergantung pada byte sebelumnya (*Cipher Feedback*), sehingga ekstraksi sebagian tidak dapat merekonstruksi keseluruhan payload.
-  - **Key Masking di Metatable Root**: Konstanta `_K` dipecah menjadi polinomial dinamis yang dihitung saat runtime menggunakan metatable dispatcher primitif, menghindarkan integer literal sederhana dari pencarian statis.
+> [!IMPORTANT]
+> **Keputusan Kunci Arsitektur**:
+> - **Penyamaran Variabel & State**: Menghilangkan sepenuhnya variabel statis terbuka (seperti `_K = number`) menjadi dynamic runtime state derivation melalui rantai metamethod polymorphism (`__index`, `__call`, `__concat`).
+> - **Anti-Dump & Silent Poisoning**: Menghindari penghentian instan `return nil` yang memberi indikasi deteksi kepada analis. Jika terdeteksi hook/debugger, kunci dekripsi bermutasi secara hening (*silent drift*) sehingga payload yang terdekripsi menjadi byte sampah tanpa mengekspos isi Layer 2.
+> - **Anti-Hooking Multilapis**: Validasi integritas closure dan global runtime (`rawget`, `getfenv`, `load`/`loadstring`, `string.dump`, coroutine state check) secara natural tanpa pola heuristik yang tertebak.
+> - **Ukuran Output**: Mempertahankan kompresi LZSS + Base85 berdensitas tinggi dengan kamus substitusi frekuensi tinggi agar output tetap berada pada kisaran optimal 100KB–120KB.
 
-## 2. Verifikasi Integritas Loader & Silent Memory Poisoning Anti-Dump
-- **Deteksi Hooking & Sandboxing**:
-  - Memeriksa integritas fungsi inti runtime Luau (`string.byte`, `table.concat`, `loadstring`, `bit32.bxor`).
-  - Mendeteksi hooking fungsi global (`print`, `loadstring`), interceptor debug (`debug.getinfo`, `debug.gethook`), modifikasi closure environment, serta validasi integritas C-closure native Luau.
-- **Mekanisme Reaksi Silent Fail**:
-  - Sesuai preferensi, loader **tidak akan memicu crash kentara atau error message** yang memberi tahu cracker bahwa hook terdeteksi.
-  - Sebagai gantinya, loader akan secara senyap **merusak seed dekripsi (*state poisoning*)** dan mengubah tabel lookup menjadi nilai semu.
-  - Akibatnya, byte stream Layer 1 yang didekripsi menjadi kode acak tak bermakna (*garbage bytecode*), menggagalkan alat deobfuscate otomatis tanpa memberi petunjuk alasan kegagalan.
+---
 
-## 3. Kompresi Adaptif LZSS & Base91 Stream (Kontrol Ukuran ~100KB)
-- **Problem Ukuran (>130KB)**:
-  - Prometheus VM Layer 1 mengandung banyak perulangan instruksi dispatcher. Jika kompresi tidak agresif, representasi ASCII akan membengkak mendekati atau melebihi 130KB.
-- **Strategi Optimasi Ukuran**:
-  - **Enhanced Sliding Hash Chain (Window 4096 / Match Max 255)**: Memperdalam kedalaman pencarian match chain untuk menangkap token berulang lebih panjang dalam dispatcher VM Prometheus.
-  - **High-Density Base91/Base85 Encoding**: Menggunakan karakter printable ASCII aman tanpa karakter bracket `]` atau backslash `\`.
-  - **Kamus Substitusi Frekuensi Karakter `kH` Adaptif**: Mengidentifikasi chunk 4-karakter yang paling sering muncul di dalam stream biner terenkripsi dan menggantikannya dengan penanda tunggal sebelum serialisasi.
-  - **Target Ukuran**: Memastikan skrip besar terkompresi stabil di kisaran 90KB - 105KB (maksimal di bawah 120KB, jauh di bawah 130KB).
+## 1. Overview & Konsep Arsitektur
 
-## 4. Format Output Monolithic 1 Baris Utuh
-- Seluruh loader Layer 2, kamus `kH`, stream `XH`, dan handler dispatch tetap disatukan menjadi **1 baris tunggal (*single-line unbroken*)** tanpa karakter newline (`\n`), indentasi (`\t`), atau komentar (`--`).
-- Menjamin kemudahan pemakaian langsung di executor Roblox Luau tanpa kendala pemotongan baris.
+Layer 1 bertindak sebagai gerbang terluar (*outer envelope*) yang mengenkapsulasi Layer 2. Saat ini, deobfuscator atau analis mengincar titik temu saat stager memanggil fungsi kompilasi (`loadstring` / `load`) atau mengekstrak nilai kunci `_K` secara langsung dari AST.
 
-## 5. Rencana Pengujian & Validasi
-- **Ukuran File**: Verifikasi otomatis bahwa output skrip kompleks berada di kisaran ~100KB dan tidak melampaui batas 120KB.
-- **Single-Line**: Memastikan string output tidak mengandung karakter newline (`\n`) dan berupa 1 baris utuh.
-- **Keamanan Anti-Dump**: Menguji bahwa lingkungan dengan intercepted `loadstring` atau proxy hooked globals mengalami *silent poison* tanpa mengekspos payload Layer 1.
-- **Kompatibilitas Luau**: Menjalankan pengujian 100% pada runner Vitest dan simulator runtime Luau Roblox untuk menjamin eksekusi fungsional normal tetap akurat tanpa bug.
+Peningkatan ini merombak Layer 1 menjadi mesin metamethod berantai di mana:
+1. Tidak ada kunci enkripsi yang tersimpan secara eksplisit. Kunci dihitung dari evaluasi metamethod aritmetika dan permutasi tabel internal.
+2. Logika eksekusi tidak berada dalam satu fungsi linier `rH`, melainkan tersebar di dalam dispatch table dengan alias opcode dinamis.
+3. Hook interception dilindungi oleh mekanisme silent poison, menjamin bahwa breakpoint ataupun runtime hooking pada `loadstring` hanya akan menangkap instruksi invalid/corrupted.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                   Stager Entry: setmetatable({}, meta)                 │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                        [Runtime Metamethod Dispatch]
+                        (__call, __index, __concat)
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│               Dynamic Environment Integrity & Hook Sensor             │
+│   - Closure purity check (string.dump & C-boundary check)             │
+│   - Hook trace check (debug hook flags, proxy wrappers)               │
+└───────────────────┬────────────────────────────────┬───────────────────┘
+                    │ Normal                         │ Tampered / Hooked
+                    ▼                                ▼
+┌────────────────────────────────────────┐  ┌───────────────────────────┐
+│ Dynamic Key Derivation (State Hash)    │  │ Silent Poison Drift       │
+│ - Derivasi multi-stage LCG seed        │  │ - Key offset bergeser     │
+│ - Unscramble cipher stream             │  │ - Payload menjadi decoy   │
+└───────────────────┬────────────────────┘  └─────────────┬─────────────┘
+                    │                                     │
+                    ▼                                     ▼
+┌────────────────────────────────────────┐  ┌───────────────────────────┐
+│ LZSS Multi-Level Streaming Decompress  │  │ Corrupted Decode Output   │
+└───────────────────┬────────────────────┘  └─────────────┬─────────────┘
+                    │                                     │
+                    ▼                                     ▼
+┌────────────────────────────────────────┐  ┌───────────────────────────┐
+│ Virtual Invoker Execution (Layer 2)    │  │ Syntax / Runtime Trap     │
+└────────────────────────────────────────┘  └───────────────────────────┘
+```
+
+---
+
+## 2. Rincian Peningkatan Teknis
+
+### A. Dynamic Key Derivation via Metatable Dispatch
+- **Sebelumnya**: Tabel stager menyimpan `_K = <angka>` yang mudah dibaca analis atau regex parser.
+- **Peningkatan**:
+  - Kunci dipecah menjadi polinomial dinamis yang dievaluasi saat runtime melalui kombinasi entri tabel dummy dan metamethod `__index` / `__call`.
+  - Nilai kunci bergantung pada panjang payload, checksum header, dan akumulasi nilai tabel stager itu sendiri.
+
+### B. Proteksi Anti-Hooking & Anti-Dumping (Silent Poisoning)
+- **Sebelumnya**: Stager mendeteksi hook lalu langsung mengeksekusi `if _chk then return nil end`.
+- **Peningkatan**:
+  - Pemeriksaan dilakukan menggunakan validasi representasi closure (`pcall(string.dump, ...)`) dan pengecekan flag hook native.
+  - Jika lingkungan terdeteksi tidak bersih (misalnya `loadstring` di-*override* oleh skid atau automated sandbox), stager **tidak keluar**, melainkan melakukan pergeseran seed LCG (*poison drift*).
+  - Proses dekripsi tetap berjalan sampai akhir, namun string yang dikirim ke `loadstring` merupakan byte terdistorsi atau decoy payload, sehingga skid tidak pernah mendapatkan bytecode Layer 2 yang valid.
+
+### C. Polymorphic Metamethod State Machine
+- Mengubah fungsi eksekutor linier menjadi alur metamethod bertingkat:
+  - Pembacaan kamus frekuensi Base85 dikemas dalam metamethod resolver.
+  - Decoding byte dilakukan secara streaming untuk meminimalkan alokasi memori sementara yang mudah di-dump melalui memori scanner.
+
+### D. Kontrol Anggaran Ukuran (Size Budget < 125KB)
+- Stager runtime template dioptimalkan dengan penamaan mangled ringkas tanpa deadweight string.
+- Kompresor LZSS mempertahankan pencarian match hingga 4095-byte window dan Base85 4-to-5 byte packing untuk menjaga rasio kompresi maksimal pada bytecode Layer 2.
+
+---
+
+## 3. Rencana Pengujian & Validasi
+
+1. **Uji Fungsionalitas**: Memastikan script terobfuscasi tetap berjalan normal 100% pada interpreter Lua 5.1 dan Luau standar.
+2. **Uji Batas Ukuran**: Memverifikasi ukuran file hasil obfuscation tetap berada di rentang 100KB–120KB (di bawah batas toleransi 130KB).
+3. **Uji Anti-Dump / Interception**: Menguji bahwa lingkungan dengan hooked `loadstring` atau memory scanner hanya menangkap payload terkorupsi tanpa mengekspos isi asli Layer 2.
+4. **Verifikasi Build & Suite Test**: Memastikan seluruh test suite unit web worker (`vitest`) berhasil tanpa error.
